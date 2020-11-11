@@ -1,0 +1,13 @@
+{
+  "name": "kodo-s3-adapter-sdk",
+  "version": "0.1.0",
+  "description": "Adapter for Kodo & S3 API",
+  "main": "index.js",
+  "repository": "github.com/bachue/kodo-s3-adapter-sdk",
+  "author": "Rong Zhou",
+  "license": "MIT",
+  "private": false,
+  "dependencies": {
+    "urllib": "^2.36.1"
+  }
+}

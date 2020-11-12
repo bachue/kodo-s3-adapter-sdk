@@ -1,4 +1,4 @@
-import os from 'os'
+import os from 'os';
 import pkg from './package.json';
 import { Region } from './region';
 

@@ -9,7 +9,7 @@
   "private": false,
   "scripts": {
     "tsc": "tsc",
-    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha -r ts-node/register test/**/*.ts"
+    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha --timeout 30000 -r ts-node/register test/**/*.ts"
   },
   "dependencies": {
     "@types/node": "^14.14.7",

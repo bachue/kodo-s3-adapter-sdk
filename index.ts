@@ -1,5 +1,5 @@
-import { Qiniu, QINIU_MODE, S3_MODE, USER_AGENT } from './adapter';
+import { Qiniu, KODO_MODE, S3_MODE, USER_AGENT } from './qiniu';
 
 module.exports = {
-    Qiniu, QINIU_MODE, S3_MODE, USER_AGENT
+    Qiniu, KODO_MODE, S3_MODE, USER_AGENT
 };

@@ -68,6 +68,7 @@ export class KodoHttpClient {
             followRedirect: true,
             retry: this.sharedOptions.retry,
             retryDelay: this.sharedOptions.retryDelay,
+            isRetry: this.isRetry,
         }).then((response) => {
             if (response.status >= 200 && response.status < 400) {
                 resolve(response);
@@ -85,6 +86,13 @@ export class KodoHttpClient {
                 reject(err);
             }
         });
+    }
+
+    private isRetry(response: HttpClientResponse<any>): boolean {
+        const dontRetryStatusCodes: Array<number> = [501, 579, 599, 608, 612, 614, 616,
+                                                     618, 630, 631, 632, 640, 701];
+        return !response.headers['x-reqid'] ||
+            response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);
     }
 
     private makeUrl(base: string, options: RequestOptions): string {

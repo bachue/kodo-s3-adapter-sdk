@@ -1,4 +1,4 @@
-import { HttpClient2 } from 'urllib';
+import { HttpClient2, HttpClientResponse } from 'urllib';
 import os from 'os';
 import pkg from './package.json';
 import { generateAccessTokenV2 } from './kodo-auth';
@@ -30,7 +30,8 @@ export class Region {
                         'authorization': generateAccessTokenV2(options.accessKey, options.secretKey, requestURI, 'GET'),
                     },
                     retry: 5,
-                    retryDelay: 500
+                    retryDelay: 500,
+                    isRetry: Region.isRetry,
                 }).then((response) => {
                     if (response.status >= 200 && response.status < 400) {
                         const regions: Array<Region> = response.data.regions.map((r: any) => { return Region.fromResponseBody(ucUrl, r); });
@@ -54,7 +55,8 @@ export class Region {
                     dataType: 'json',
                     headers: { 'user-agent': USER_AGENT },
                     retry: 5,
-                    retryDelay: 500
+                    retryDelay: 500,
+                    isRetry: Region.isRetry,
                 }).then((response) => {
                     if (response.status >= 200 && response.status < 400) {
                         let r: any = null;
@@ -73,6 +75,13 @@ export class Region {
                     }
                 }, reject);
         });
+    }
+
+    private static isRetry(response: HttpClientResponse<any>): boolean {
+        const dontRetryStatusCodes: Array<number> = [501, 579, 599, 608, 612, 614, 616,
+                                                     618, 630, 631, 632, 640, 701];
+        return !response.headers['x-reqid'] ||
+            response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);
     }
 
     private static fromResponseBody(ucUrl: string, r: any): Region {

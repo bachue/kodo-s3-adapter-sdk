@@ -60,7 +60,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    listBuckets(): Promise<Array<BucketInfo>> {
+    listBucketIdNames(): Promise<Array<BucketIdName>> {
         return new Promise((resolve, reject) => {
             this.client.call({
                 method: 'GET',
@@ -69,7 +69,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
             }).then((response) => {
                 const bucketInfos = response.data.map((info: any) => {
-                    return { id: info.id, name: info.tbl, private: info.private };
+                    return { id: info.id, name: info.tbl };
                 });
                 resolve(bucketInfos);
             }, reject);
@@ -77,8 +77,7 @@ export class Kodo implements Adapter {
     }
 }
 
-export interface BucketInfo {
+export interface BucketIdName {
     id: string;
     name: string;
-    private: boolean;
 }

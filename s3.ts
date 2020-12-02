@@ -156,7 +156,7 @@ export class S3 implements Adapter {
             if (this.bucketNameToIdCache[bucketName]) {
                 resolve(this.bucketNameToIdCache[bucketName]);
             } else {
-                this.kodo.listBuckets().then((buckets) => {
+                this.kodo.listBucketIdNames().then((buckets) => {
                     buckets.forEach((bucket) => {
                         this.bucketNameToIdCache[bucket.name] = bucket.id;
                     });

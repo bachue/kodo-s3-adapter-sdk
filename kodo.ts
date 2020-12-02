@@ -9,11 +9,15 @@ export class Kodo implements Adapter {
     private client: KodoHttpClient;
 
     constructor(adapterOption: AdapterOption) {
+        let userAgent: string = USER_AGENT;
+        if (adapterOption.appendedUserAgent) {
+            userAgent += `/${adapterOption.appendedUserAgent}`;
+        }
         this.client = new KodoHttpClient({
             accessKey: adapterOption.accessKey,
             secretKey: adapterOption.secretKey,
             ucUrl: adapterOption.ucUrl,
-            userAgent: USER_AGENT,
+            userAgent: userAgent,
         });
     }
 
@@ -55,4 +59,26 @@ export class Kodo implements Adapter {
             }, reject);
         });
     }
+
+    listBuckets(): Promise<Array<BucketInfo>> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'GET',
+                serviceName: ServiceName.Uc,
+                path: 'v2/buckets',
+                dataType: 'json',
+            }).then((response) => {
+                const bucketInfos = response.data.map((info: any) => {
+                    return { id: info.id, name: info.tbl, private: info.private };
+                });
+                resolve(bucketInfos);
+            }, reject);
+        });
+    }
+}
+
+export interface BucketInfo {
+    id: string;
+    name: string;
+    private: boolean;
 }

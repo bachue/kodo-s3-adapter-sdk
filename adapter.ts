@@ -11,5 +11,6 @@ export interface AdapterOption {
     secretKey: string;
     regions: Array<Region>;
     ucUrl?: string;
+    appendedUserAgent?: string;
 }
 

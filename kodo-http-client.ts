@@ -19,7 +19,7 @@ export interface SharedRequestOptions {
 
 export interface RequestOptions {
     method?: HttpMethod;
-    path?: string,
+    path?: string;
     query?: URLSearchParams;
     bucketName?: string;
     serviceName: ServiceName;
@@ -29,12 +29,10 @@ export interface RequestOptions {
 }
 
 export class KodoHttpClient {
-    private static httpClient: HttpClient2 = new HttpClient2();
-    private regionsCache: { [key: string]: Region; } = {};
-    private sharedOptions: SharedRequestOptions;
+    private static readonly httpClient: HttpClient2 = new HttpClient2();
+    private readonly regionsCache: { [key: string]: Region; } = {};
 
-    constructor(options: SharedRequestOptions) {
-        this.sharedOptions = options;
+    constructor(private readonly sharedOptions: SharedRequestOptions) {
     }
 
     call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {

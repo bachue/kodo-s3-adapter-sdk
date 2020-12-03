@@ -8,25 +8,25 @@ export abstract class Adapter {
     abstract getBucketLocation(bucket: string): Promise<string>;
     abstract listBuckets(): Promise<Array<Bucket>>;
 
-    abstract isExists(region: string, object: Object): Promise<boolean>;
-    abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
-    abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
+    // abstract isExists(region: string, object: Object): Promise<boolean>;
+    // abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
+    // abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
 
-    abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
-    abstract moveObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
-    abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
-    abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
-    abstract deleteObject(region: string, object: Object): Promise<void>;
-    abstract deleteObjects(region: string, bucket: string, paths: Array<string>): Promise<Array<PartialObjectError>>;
+    // abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
+    // abstract moveObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
+    // abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
+    // abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
+    // abstract deleteObject(region: string, object: Object): Promise<void>;
+    // abstract deleteObjects(region: string, bucket: string, paths: Array<string>): Promise<Array<PartialObjectError>>;
 
-    abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
-    abstract setObjectHeader(region: string, object: Object, header: ObjectHeader): Promise<void>;
-    abstract getObject(region: string, object: Object): Promise<ObjectGetResult>;
-    abstract getObjectURL(region: string, object: Object): Promise<URL>;
-    abstract putObject(region: string, object: Object, data: Buffer, header: ObjectHeader): Promise<void>;
-    abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
+    // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
+    // abstract setObjectHeader(region: string, object: Object, header: ObjectHeader): Promise<void>;
+    // abstract getObject(region: string, object: Object): Promise<ObjectGetResult>;
+    // abstract getObjectURL(region: string, object: Object): Promise<URL>;
+    // abstract putObject(region: string, object: Object, data: Buffer, header: ObjectHeader): Promise<void>;
+    // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
 
-    abstract listFiles(region: string, bucket: string, prefix: string, limit?: number, nextContinuationToken?: string): Promise<Array<ObjectInfo>>;
+    // abstract listFiles(region: string, bucket: string, prefix: string, limit?: number, nextContinuationToken?: string): Promise<Array<ObjectInfo>>;
 }
 
 export interface AdapterOption {

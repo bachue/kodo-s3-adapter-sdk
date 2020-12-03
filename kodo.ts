@@ -1,6 +1,6 @@
 import os from 'os';
 import pkg from './package.json';
-import { Adapter, AdapterOption } from './adapter';
+import { Adapter, AdapterOption, Bucket } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -56,6 +56,26 @@ export class Kodo implements Adapter {
                 dataType: 'json',
             }).then((response) => {
                 resolve(response.data.region);
+            }, reject);
+        });
+    }
+
+    listBuckets(): Promise<Array<Bucket>> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'GET',
+                serviceName: ServiceName.Uc,
+                path: 'v2/buckets',
+                dataType: 'json',
+            }).then((response) => {
+                const bucketInfos: Array<Bucket> = response.data.map((info: any) => {
+                    return {
+                        id: info.id, name: info.tbl,
+                        createDate: new Date(info.ctime * 1000),
+                        regionId: info.region,
+                    };
+                });
+                resolve(bucketInfos);
             }, reject);
         });
     }

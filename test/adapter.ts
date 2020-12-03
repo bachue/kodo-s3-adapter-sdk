@@ -12,12 +12,25 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 await qiniuAdapter.createBucket('z1', bucketName);
                 const regionId = await qiniuAdapter.getBucketLocation(bucketName);
                 expect(regionId).to.equal('z1');
+
                 await qiniuAdapter.deleteBucket('z1', bucketName);
                 try {
                     await qiniuAdapter.getBucketLocation(bucketName)
                     assert.fail();
                 } catch {
                 }
+            });
+
+            it('lists all buckets', async () => {
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buckets = await qiniuAdapter.listBuckets();
+                let bucket = buckets.find((bucket) => bucket.name === 'phpsdk');
+                expect(bucket?.id).not.to.equal('phpsdk');
+
+                bucket = buckets.find((bucket) => bucket.name === 'kodo-s3-adapter-sdk');
+                expect(bucket?.regionId).to.equal('na0');
             });
         });
     });

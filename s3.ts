@@ -3,7 +3,7 @@ import pkg from './package.json';
 import AWS from 'aws-sdk';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption } from './adapter';
+import { Adapter, AdapterOption, Bucket } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -15,6 +15,7 @@ interface S3IdEndpoint {
 export class S3 implements Adapter {
     private allRegions: Array<Region> | undefined = undefined;
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
+    private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
     private readonly kodo: Kodo;
 
@@ -159,11 +160,32 @@ export class S3 implements Adapter {
                 this.kodo.listBucketIdNames().then((buckets) => {
                     buckets.forEach((bucket) => {
                         this.bucketNameToIdCache[bucket.name] = bucket.id;
+                        this.bucketIdToNameCache[bucket.id] = bucket.name;
                     });
                     if (this.bucketNameToIdCache[bucketName]) {
                         resolve(this.bucketNameToIdCache[bucketName]);
                     } else {
                         reject(new Error(`Cannot find bucket id of bucket ${bucketName}`));
+                    }
+                }, reject);
+            }
+        });
+    }
+
+    private fromS3BucketIdToKodoBucketName(bucketId: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            if (this.bucketIdToNameCache[bucketId]) {
+                resolve(this.bucketIdToNameCache[bucketId]);
+            } else {
+                this.kodo.listBucketIdNames().then((buckets) => {
+                    buckets.forEach((bucket) => {
+                        this.bucketNameToIdCache[bucket.name] = bucket.id;
+                        this.bucketIdToNameCache[bucket.id] = bucket.name;
+                    });
+                    if (this.bucketIdToNameCache[bucketId]) {
+                        resolve(this.bucketIdToNameCache[bucketId]);
+                    } else {
+                        reject(new Error(`Cannot find bucket name of bucket ${bucketId}`));
                     }
                 }, reject);
             }
@@ -208,21 +230,57 @@ export class S3 implements Adapter {
     }
 
     getBucketLocation(bucket: string): Promise<string> {
-        const self = this;
         return new Promise((resolve, reject) => {
-            self.getClient().then((s3) => {
-                self.fromKodoBucketNameToS3BucketId(bucket).then((bucketId) => {
-                    s3.getBucketLocation({ Bucket: bucketId }, function(err, data) {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            const s3Id: string = data.LocationConstraint!;
-                            self.fromS3IdToKodoRegionId(s3Id).then((regionId) => {
-                                resolve(regionId);
-                            }, reject);
-                        }
-                    });
+            this.getClient().then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(bucket).then((bucketId) => {
+                    this._getBucketLocation(s3, bucketId, resolve, reject);
                 }, reject);
+            }, reject);
+        });
+    }
+
+    private _getBucketLocation(s3: AWS.S3, bucketId: string, resolve: any, reject: any): void {
+        s3.getBucketLocation({ Bucket: bucketId }, (err, data) => {
+            if (err) {
+                reject(err);
+            } else {
+                const s3Id: string = data.LocationConstraint!;
+                this.fromS3IdToKodoRegionId(s3Id).then((regionId) => {
+                    resolve(regionId);
+                }, reject);
+            }
+        });
+    }
+
+    listBuckets(): Promise<Array<Bucket>> {
+        return new Promise((resolve, reject) => {
+            this.getClient().then((s3) => {
+                s3.listBuckets((err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
+                            return this.fromS3BucketIdToKodoBucketName(info.Name);
+                        });
+                        const bucketLocationPromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
+                            return new Promise((resolve, reject) => {
+                                this._getBucketLocation(s3, info.Name, resolve, reject);
+                            });
+                        });
+                        Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)]).then((results) => {
+                            const bucketNames: Array<string> = results[0];
+                            const bucketLocations: Array<string> = results[1];
+                            const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
+                                return {
+                                    id: info.Name, name: bucketNames[index],
+                                    createDate: info.CreationDate,
+                                    regionId: bucketLocations[index],
+                                };
+                            });
+                            resolve(bucketInfos);
+                        }, reject);
+                    }
+                });
             }, reject);
         });
     }

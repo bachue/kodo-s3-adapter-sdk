@@ -12,7 +12,9 @@
     "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha --timeout 30000 -r ts-node/register test/**/*.ts"
   },
   "dependencies": {
+    "@types/async-lock": "^1.1.2",
     "@types/node": "^14.14.7",
+    "async-lock": "^1.2.4",
     "aws-sdk": "^2.800.0",
     "js-base64": "^3.6.0",
     "tslint": "^6.1.3",

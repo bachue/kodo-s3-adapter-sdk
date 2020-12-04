@@ -1,3 +1,4 @@
+import AsyncLock from 'async-lock';
 import http from 'http';
 import { HttpClient2, HttpClientResponse, HttpMethod } from 'urllib';
 import { URL, URLSearchParams } from 'url';
@@ -32,6 +33,7 @@ export interface RequestOptions {
 export class KodoHttpClient {
     private static readonly httpClient: HttpClient2 = new HttpClient2();
     private readonly regionsCache: { [key: string]: Region; } = {};
+    private readonly regionsCacheLock = new AsyncLock();
 
     constructor(private readonly sharedOptions: SharedRequestOptions) {
     }
@@ -150,42 +152,47 @@ export class KodoHttpClient {
             } else {
                 key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
             }
-            const region: Region | null = this.regionsCache[key];
-            if (region) {
-                resolve(this.getUrlsFromRegion(serviceName, region));
-            } else if (bucketName) {
-                Region.query({
-                    bucketName,
-                    accessKey: this.sharedOptions.accessKey,
-                    ucUrl: this.sharedOptions.ucUrl,
-                }).then((region) => {
-                    this.regionsCache[key] = region;
-                    resolve(this.getUrlsFromRegion(serviceName, region));
-                }, reject);
-            } else {
-                Region.getAll({
-                    accessKey: this.sharedOptions.accessKey,
-                    secretKey: this.sharedOptions.secretKey,
-                    ucUrl: this.sharedOptions.ucUrl,
-                }).then((regions) => {
-                    if (regions.length == 0) {
-                        reject(Error('regions is empty'));
-                        return;
-                    }
-                    let region: Region | undefined = undefined;
-                    if (regionId) {
-                        region = regions.find((region) => region.id === regionId);
-                        if (!region) {
-                            reject(new Error(`Cannot find region of ${regionId}`));
-                            return;
-                        }
-                    } else {
-                        region = regions[0];
-                    }
-                    this.regionsCache[key] = region;
-                    resolve(this.getUrlsFromRegion(serviceName, region));
-                }, reject);
+            if (this.regionsCache[key]) {
+                resolve(this.getUrlsFromRegion(serviceName, this.regionsCache[key]));
+                return;
             }
+            this.regionsCacheLock.acquire(key, (): Promise<Region> => {
+                if (this.regionsCache[key]) {
+                    return new Promise((resolve) => { resolve(this.regionsCache[key]); });
+                } else if (bucketName) {
+                    return Region.query({
+                        bucketName,
+                        accessKey: this.sharedOptions.accessKey,
+                        ucUrl: this.sharedOptions.ucUrl,
+                    });
+                } else {
+                    return new Promise((resolve, reject) => {
+                        Region.getAll({
+                            accessKey: this.sharedOptions.accessKey,
+                            secretKey: this.sharedOptions.secretKey,
+                            ucUrl: this.sharedOptions.ucUrl,
+                        }).then((regions) => {
+                            if (regions.length == 0) {
+                                reject(Error('regions is empty'));
+                                return;
+                            }
+                            if (regionId) {
+                                const region = regions.find((region) => region.id === regionId);
+                                if (!region) {
+                                    reject(new Error(`Cannot find region of ${regionId}`));
+                                    return;
+                                }
+                                resolve(region);
+                            } else {
+                                resolve(regions[0]);
+                            }
+                        }, reject);
+                    });
+                }
+            }).then((region: Region) => {
+                this.regionsCache[key] = region;
+                resolve(this.getUrlsFromRegion(serviceName, region));
+            }, reject);
         });
     }
 

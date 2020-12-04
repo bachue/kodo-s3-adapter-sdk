@@ -57,7 +57,8 @@ export class Region {
     static query(options: { accessKey: string, bucketName: string, ucUrl?: string }): Promise<Region> {
         const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
         return new Promise((resolve, reject) => {
-            Region.httpClient.request(`${ucUrl}/v4/query`,
+            const requestURI = `${ucUrl}/v4/query`;
+            Region.httpClient.request(requestURI,
                 {
                     data: { ak: options.accessKey, bucket: options.bucketName },
                     dataAsQueryString: true,

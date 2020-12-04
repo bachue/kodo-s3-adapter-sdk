@@ -1,6 +1,7 @@
+import AsyncLock from 'async-lock';
+import AWS from 'aws-sdk';
 import os from 'os';
 import pkg from './package.json';
-import AWS from 'aws-sdk';
 import { Region } from './region';
 import { Kodo } from './kodo';
 import { Adapter, AdapterOption, Bucket, Object } from './adapter';
@@ -14,9 +15,12 @@ interface S3IdEndpoint {
 
 export class S3 implements Adapter {
     private allRegions: Array<Region> | undefined = undefined;
+    private readonly allRegionsLock = new AsyncLock();
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
     private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
+    private readonly bucketNameToIdCacheLock = new AsyncLock();
+    private readonly clientsLock = new AsyncLock();
     private readonly kodo: Kodo;
 
     constructor(private readonly adapterOption: AdapterOption) {
@@ -28,34 +32,39 @@ export class S3 implements Adapter {
             const cacheKey = regionId ?? '';
             if (this.clients[cacheKey]) {
                 resolve(this.clients[cacheKey]);
-            } else {
-                let userAgent = USER_AGENT;
-                if (this.adapterOption.appendedUserAgent) {
-                    userAgent += `/${this.adapterOption.appendedUserAgent}`;
-                }
-                this.getS3Endpoint(regionId).then((s3IdEndpoint) => {
-                    const s3 = new AWS.S3({
-                        apiVersion: "2006-03-01",
-                        customUserAgent: userAgent,
-                        computeChecksums: true,
-                        region: s3IdEndpoint.s3Id,
-                        endpoint: s3IdEndpoint.s3Endpoint,
-                        accessKeyId: this.adapterOption.accessKey,
-                        secretAccessKey: this.adapterOption.secretKey,
-                        // logger: console, TODO: Use Adapter Option here
-                        maxRetries: 10,
-                        s3ForcePathStyle: true,
-                        signatureVersion: "v4",
-                        useDualstack: true,
-                        httpOptions: {
-                            connectTimeout: 30000,
-                            timeout: 300000,
-                        }
-                    });
-                    this.clients[cacheKey] = s3;
-                    resolve(s3);
-                }, reject);
+                return;
             }
+            this.clientsLock.acquire(cacheKey, (): Promise<AWS.S3> => {
+                return new Promise((resolve, reject) => {
+                    let userAgent = USER_AGENT;
+                    if (this.adapterOption.appendedUserAgent) {
+                        userAgent += `/${this.adapterOption.appendedUserAgent}`;
+                    }
+                    this.getS3Endpoint(regionId).then((s3IdEndpoint) => {
+                        resolve(new AWS.S3({
+                            apiVersion: "2006-03-01",
+                            customUserAgent: userAgent,
+                            computeChecksums: true,
+                            region: s3IdEndpoint.s3Id,
+                            endpoint: s3IdEndpoint.s3Endpoint,
+                            accessKeyId: this.adapterOption.accessKey,
+                            secretAccessKey: this.adapterOption.secretKey,
+                            // logger: console, TODO: Use Adapter Option here
+                            maxRetries: 10,
+                            s3ForcePathStyle: true,
+                            signatureVersion: "v4",
+                            useDualstack: true,
+                            httpOptions: {
+                                connectTimeout: 30000,
+                                timeout: 300000,
+                            }
+                        }));
+                    }, reject);
+                });
+            }).then((client: AWS.S3) => {
+                this.clients[cacheKey] = client;
+                resolve(client);
+            }, reject);
         });
     }
 
@@ -84,10 +93,15 @@ export class S3 implements Adapter {
             } else if (this.allRegions && this.allRegions.length > 0) {
                 queryInRegions(this.allRegions);
             } else {
-                Region.getAll({
-                    accessKey: this.adapterOption.accessKey,
-                    secretKey: this.adapterOption.secretKey,
-                    ucUrl: this.adapterOption.ucUrl,
+                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
+                    if (this.allRegions && this.allRegions.length > 0) {
+                        return new Promise((resolve) => { resolve(this.allRegions) });
+                    }
+                    return Region.getAll({
+                        accessKey: this.adapterOption.accessKey,
+                        secretKey: this.adapterOption.secretKey,
+                        ucUrl: this.adapterOption.ucUrl,
+                    });
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;
                     queryInRegions(regions);
@@ -107,15 +121,21 @@ export class S3 implements Adapter {
                     reject(new Error(`Cannot find region s3 id of ${regionId}`));
                 }
             };
+
             if (this.adapterOption.regions.length > 0) {
                 queryInRegions(this.adapterOption.regions);
             } else if (this.allRegions && this.allRegions.length > 0) {
                 queryInRegions(this.allRegions);
             } else {
-                Region.getAll({
-                    accessKey: this.adapterOption.accessKey,
-                    secretKey: this.adapterOption.secretKey,
-                    ucUrl: this.adapterOption.ucUrl,
+                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
+                    if (this.allRegions && this.allRegions.length > 0) {
+                        return new Promise((resolve) => { resolve(this.allRegions) });
+                    }
+                    return Region.getAll({
+                        accessKey: this.adapterOption.accessKey,
+                        secretKey: this.adapterOption.secretKey,
+                        ucUrl: this.adapterOption.ucUrl,
+                    });
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;
                     queryInRegions(regions);
@@ -135,15 +155,21 @@ export class S3 implements Adapter {
                     reject(new Error(`Cannot find region id of ${s3Id}`));
                 }
             };
+
             if (this.adapterOption.regions.length > 0) {
                 queryInRegions(this.adapterOption.regions);
             } else if (this.allRegions && this.allRegions.length > 0) {
                 queryInRegions(this.allRegions);
             } else {
-                Region.getAll({
-                    accessKey: this.adapterOption.accessKey,
-                    secretKey: this.adapterOption.secretKey,
-                    ucUrl: this.adapterOption.ucUrl,
+                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
+                    if (this.allRegions && this.allRegions.length > 0) {
+                        return new Promise((resolve) => { resolve(this.allRegions) });
+                    }
+                    return Region.getAll({
+                        accessKey: this.adapterOption.accessKey,
+                        secretKey: this.adapterOption.secretKey,
+                        ucUrl: this.adapterOption.ucUrl,
+                    });
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;
                     queryInRegions(regions);
@@ -156,19 +182,29 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             if (this.bucketNameToIdCache[bucketName]) {
                 resolve(this.bucketNameToIdCache[bucketName]);
-            } else {
-                this.kodo.listBucketIdNames().then((buckets) => {
-                    buckets.forEach((bucket) => {
-                        this.bucketNameToIdCache[bucket.name] = bucket.id;
-                        this.bucketIdToNameCache[bucket.id] = bucket.name;
-                    });
-                    if (this.bucketNameToIdCache[bucketName]) {
-                        resolve(this.bucketNameToIdCache[bucketName]);
-                    } else {
-                        reject(new Error(`Cannot find bucket id of bucket ${bucketName}`));
-                    }
-                }, reject);
+                return;
             }
+            this.bucketNameToIdCacheLock.acquire('all', (): Promise<void> => {
+                return new Promise((resolve, reject) => {
+                    if (this.bucketNameToIdCache[bucketName]) {
+                        resolve();
+                        return;
+                    }
+                    this.kodo.listBucketIdNames().then((buckets) => {
+                        buckets.forEach((bucket) => {
+                            this.bucketNameToIdCache[bucket.name] = bucket.id;
+                            this.bucketIdToNameCache[bucket.id] = bucket.name;
+                        });
+                        resolve();
+                    }, reject);
+                });
+            }).then(() => {
+                if (this.bucketNameToIdCache[bucketName]) {
+                    resolve(this.bucketNameToIdCache[bucketName]);
+                } else {
+                    reject(new Error(`Cannot find bucket id of bucket ${bucketName}`));
+                }
+            }, reject);
         });
     }
 
@@ -176,19 +212,29 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             if (this.bucketIdToNameCache[bucketId]) {
                 resolve(this.bucketIdToNameCache[bucketId]);
-            } else {
-                this.kodo.listBucketIdNames().then((buckets) => {
-                    buckets.forEach((bucket) => {
-                        this.bucketNameToIdCache[bucket.name] = bucket.id;
-                        this.bucketIdToNameCache[bucket.id] = bucket.name;
-                    });
-                    if (this.bucketIdToNameCache[bucketId]) {
-                        resolve(this.bucketIdToNameCache[bucketId]);
-                    } else {
-                        reject(new Error(`Cannot find bucket name of bucket ${bucketId}`));
-                    }
-                }, reject);
+                return;
             }
+            this.bucketNameToIdCacheLock.acquire('all', (): Promise<void> => {
+                return new Promise((resolve, reject) => {
+                    if (this.bucketIdToNameCache[bucketId]) {
+                        resolve();
+                        return;
+                    }
+                    this.kodo.listBucketIdNames().then((buckets) => {
+                        buckets.forEach((bucket) => {
+                            this.bucketNameToIdCache[bucket.name] = bucket.id;
+                            this.bucketIdToNameCache[bucket.id] = bucket.name;
+                        });
+                        resolve();
+                    }, reject);
+                });
+            }).then(() => {
+                if (this.bucketIdToNameCache[bucketId]) {
+                    resolve(this.bucketIdToNameCache[bucketId]);
+                } else {
+                    reject(new Error(`Cannot find bucket name of bucket ${bucketId}`));
+                }
+            }, reject);
         });
     }
 

@@ -34,12 +34,21 @@ export class Region {
                     isRetry: Region.isRetry,
                 }).then((response) => {
                     if (response.status >= 200 && response.status < 400) {
-                        const regions: Array<Region> = response.data.regions.map((r: any) => { return Region.fromResponseBody(ucUrl, r); });
+                        const regions: Array<Region> = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
                         resolve(regions);
                     } else if (response.data.error) {
                         reject(new Error(response.data.error));
                     } else {
-                        reject(new Error('Unknown response error'));
+                        try {
+                            const data = JSON.parse(response.data);
+                            if (data.error) {
+                                reject(new Error(data.error));
+                            } else {
+                                reject(new Error(response.res.statusMessage));
+                            }
+                        } catch {
+                            reject(new Error(response.res.statusMessage));
+                        }
                     }
                 }, reject);
         });
@@ -71,7 +80,16 @@ export class Region {
                     } else if (response.data.error) {
                         reject(new Error(response.data.error));
                     } else {
-                        reject(new Error('Unknown response error'));
+                        try {
+                            const data = JSON.parse(response.data);
+                            if (data.error) {
+                                reject(new Error(data.error));
+                            } else {
+                                reject(new Error(response.res.statusMessage));
+                            }
+                        } catch {
+                            reject(new Error(response.res.statusMessage));
+                        }
                     }
                 }, reject);
         });

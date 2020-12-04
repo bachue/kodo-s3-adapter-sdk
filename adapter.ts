@@ -8,7 +8,7 @@ export abstract class Adapter {
     abstract getBucketLocation(bucket: string): Promise<string>;
     abstract listBuckets(): Promise<Array<Bucket>>;
 
-    // abstract isExists(region: string, object: Object): Promise<boolean>;
+    abstract isExists(region: string, object: Object): Promise<boolean>;
     // abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
     // abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
 
@@ -17,7 +17,7 @@ export abstract class Adapter {
     // abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
     // abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
     // abstract deleteObject(region: string, object: Object): Promise<void>;
-    // abstract deleteObjects(region: string, bucket: string, paths: Array<string>): Promise<Array<PartialObjectError>>;
+    // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;
 
     // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
     // abstract setObjectHeader(region: string, object: Object, header: ObjectHeader): Promise<void>;
@@ -69,7 +69,7 @@ export interface TransferObject {
 
 export interface Object {
     bucket: string;
-    path: string;
+    key: string;
 }
 
 export interface PartialObjectError extends Object {

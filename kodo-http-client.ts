@@ -22,6 +22,7 @@ export interface RequestOptions {
     path?: string;
     query?: URLSearchParams;
     bucketName?: string;
+    regionId?: string;
     serviceName: ServiceName;
     data?: any;
     dataType?: string;
@@ -37,7 +38,7 @@ export class KodoHttpClient {
 
     call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
         return new Promise((resolve, reject) => {
-            this.getServiceUrls(options.serviceName, options.bucketName).then((urls) => {
+            this.getServiceUrls(options.serviceName, options.bucketName, options.regionId).then((urls) => {
                 this.callForOneUrl(urls, options, resolve, reject);
             }, reject);
         });
@@ -75,7 +76,16 @@ export class KodoHttpClient {
             } else if (response.data.error) {
                 reject(new Error(response.data.error));
             } else {
-                reject(new Error('Unknown response error'));
+                try {
+                    const data: any = JSON.parse(response.data);
+                    if (data.error) {
+                        reject(new Error(data.error));
+                    } else {
+                        reject(new Error(response.res.statusMessage));
+                    }
+                } catch {
+                    reject(new Error(response.res.statusMessage));
+                }
             }
         }).catch((err) => {
             if (urls.length > 0) {
@@ -125,18 +135,21 @@ export class KodoHttpClient {
                 data = JSON.stringify(options.data);
             }
             data = options.data.toString();
-
         }
+
         return generateAccessTokenV2(
             this.sharedOptions.accessKey, this.sharedOptions.secretKey, url.toString(),
-            options.method ?? 'GET',
-            options.contentType ?? 'application/octet-stream',
-            data);
+            options.method ?? 'GET', options.contentType, data);
     }
 
-    private getServiceUrls(serviceName: ServiceName, bucketName?: string): Promise<Array<string>> {
+    private getServiceUrls(serviceName: ServiceName, bucketName?: string, regionId?: string): Promise<Array<string>> {
         return new Promise((resolve, reject) => {
-            const key: string = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
+            let key: string;
+            if (regionId) {
+                key = `${this.sharedOptions.ucUrl}/${regionId}`;
+            } else {
+                key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
+            }
             const region: Region | null = this.regionsCache[key];
             if (region) {
                 resolve(this.getUrlsFromRegion(serviceName, region));
@@ -156,9 +169,19 @@ export class KodoHttpClient {
                     ucUrl: this.sharedOptions.ucUrl,
                 }).then((regions) => {
                     if (regions.length == 0) {
-                        throw new Error('regions is empty');
+                        reject(Error('regions is empty'));
+                        return;
                     }
-                    const region = regions[0];
+                    let region: Region | undefined = undefined;
+                    if (regionId) {
+                        region = regions.find((region) => region.id === regionId);
+                        if (!region) {
+                            reject(new Error(`Cannot find region of ${regionId}`));
+                            return;
+                        }
+                    } else {
+                        region = regions[0];
+                    }
                     this.regionsCache[key] = region;
                     resolve(this.getUrlsFromRegion(serviceName, region));
                 }, reject);

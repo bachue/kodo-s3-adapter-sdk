@@ -7,7 +7,7 @@ function hmacSha1(data: string, secretKey: string): string {
     return hmac.digest('base64');
 }
 
-function base64ToUrlSafe(v: string): string {
+export function base64ToUrlSafe(v: string): string {
     return v.replace(/\//g, '_').replace(/\+/g, '-');
 }
 
@@ -19,7 +19,7 @@ export function generateAccessTokenV2(
 
     contentType = contentType ?? '';
     if (contentType === 'application/json' || contentType === 'application/x-www-form-urlencoded') {
-        data += `\nContent-Type: ${contentType}\n`;
+        data += `Content-Type: ${contentType}\n`;
     }
 
     requestBody = requestBody ?? '';

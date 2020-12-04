@@ -3,7 +3,7 @@ import pkg from './package.json';
 import AWS from 'aws-sdk';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket } from './adapter';
+import { Adapter, AdapterOption, Bucket, Object } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -281,6 +281,24 @@ export class S3 implements Adapter {
                         }, reject);
                     }
                 });
+            }, reject);
+        });
+    }
+
+    isExists(region: string, object: Object): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            this.getClient(region).then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
+                    s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }, (err, data) => {
+                        if (err) {
+                            reject(err);
+                        } else if (data.Contents && data.Contents.length > 0) {
+                            resolve(data.Contents[0].Key === object.key);
+                        } else {
+                            resolve(false);
+                        }
+                    });
+                }, reject);
             }, reject);
         });
     }

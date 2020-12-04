@@ -32,6 +32,16 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 bucket = buckets.find((bucket) => bucket.name === 'kodo-s3-adapter-sdk');
                 expect(bucket?.regionId).to.equal('na0');
             });
+
+            it('check file existence', async () => {
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniuAdapter = qiniu.mode(mode);
+
+                let isExisted: boolean = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: '10m' });
+                expect(isExisted).to.equal(true);
+                isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: '10m.not.exists' });
+                expect(isExisted).to.equal(false);
+            });
         });
     });
 });

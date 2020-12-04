@@ -1,6 +1,8 @@
 import os from 'os';
 import pkg from './package.json';
-import { Adapter, AdapterOption, Bucket } from './adapter';
+import { encode as base64Encode } from 'js-base64';
+import { base64ToUrlSafe } from './kodo-auth';
+import { Adapter, AdapterOption, Bucket, Object } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -98,6 +100,43 @@ export class Kodo implements Adapter {
             }, reject);
         });
     }
+
+    isExists(region: string, object: Object): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'GET',
+                serviceName: ServiceName.Rs,
+                path: `stat/${encodeObject(object)}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then((_response) => {
+                resolve(true);
+            }, (error) => {
+                if (error.message === 'no such file or directory') {
+                    resolve(false);
+                } else {
+                    reject(error);
+                }
+            });
+        });
+    }
+}
+
+function encodeObject(object: Object): string {
+    return encodeBucketKey(object.bucket, object.key);
+}
+
+function encodeBucketKey(bucket: string, key?: string): string {
+    let data: string = bucket;
+    if (key) {
+        data += `:${key}`;
+    }
+    return urlSafeBase64(data);
+}
+
+function urlSafeBase64(data: string): string {
+    return base64ToUrlSafe(base64Encode(data));
 }
 
 export interface BucketIdName {

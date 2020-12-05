@@ -216,22 +216,31 @@ export class Kodo implements Adapter {
     //     });
     // }
 
-    getObjectURL(region: string, object: Object, deadline?: Date): Promise<URL> {
+    getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {
-            this.listDomains(region, object.bucket).then((domains) => {
-                if (domains.length === 0) {
-                    reject(new Error('no domain found'));
+            const domainPromise: Promise<Domain> = new Promise((resolve, reject) => {
+                if (domain) {
+                    resolve(domain);
                     return;
                 }
-                const domainTypeScope = (domain: Domain): number => {
-                    switch (domain.type) {
-                    case 'normal': return 1;
-                    case 'pan': return 2;
-                    case 'test': return 3;
+                this.listDomains(region, object.bucket).then((domains) => {
+                    if (domains.length === 0) {
+                        reject(new Error('no domain found'));
+                        return;
                     }
-                };
-                domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
-                const domain = domains[0];
+                    const domainTypeScope = (domain: Domain): number => {
+                        switch (domain.type) {
+                        case 'normal': return 1;
+                        case 'pan': return 2;
+                        case 'test': return 3;
+                        }
+                    };
+                    domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
+                    resolve(domains[0]);
+                }, reject);
+            });
+
+            domainPromise.then((domain: Domain) => {
                 let url = new URL(`${domain.protocol}://${domain.name}/${object.key}`);
                 if (domain.private) {
                     url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);

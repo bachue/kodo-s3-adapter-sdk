@@ -396,7 +396,7 @@ export class S3 implements Adapter {
     //     return new Promise((resolve, _reject) => { resolve(); });
     // }
 
-    getObjectURL(region: string, object: Object, deadline?: Date): Promise<URL> {
+    getObjectURL(region: string, object: Object, _domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {
             this.getClient(region).then((s3) => {
                 this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {

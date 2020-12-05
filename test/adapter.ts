@@ -45,6 +45,9 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 let isExisted: boolean = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
                 expect(isExisted).to.equal(true);
 
+                const url = await qiniuAdapter.getObjectURL('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, new Date(Date.now() + 86400000));
+                expect(url.toString().includes(key)).to.equal(true);
+
                 await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
 
                 isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });

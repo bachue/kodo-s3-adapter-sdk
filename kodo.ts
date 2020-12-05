@@ -2,9 +2,9 @@ import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
-import { URLSearchParams } from 'url';
+import { URL, URLSearchParams } from 'url';
 import { encode as base64Encode } from 'js-base64';
-import { base64ToUrlSafe, NewUploadPolicy, MakeUploadToken } from './kodo-auth';
+import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
@@ -119,8 +119,17 @@ export class Kodo implements Adapter {
             ];
 
             Promise.all(promises).then((responses) => {
-                const domains: Array<Domain> = responses[0].data.domains.map((domain: any) => {
-                    return { domain: domain.name, protocol: domain.protocol, private: responses[1].data.private != 0 };
+                const domains: Array<Domain> = responses[0].data.domains.filter((domain: any) => {
+                    switch (domain.type) {
+                    case 'normal':
+                    case 'pan':
+                    case 'test':
+                        return true;
+                    default:
+                        return false;
+                    }
+                }).map((domain: any) => {
+                    return { name: domain.name, protocol: domain.protocol, type: domain.type, private: responses[1].data.private != 0 };
                 });
                 resolve(domains);
             }, reject);
@@ -179,7 +188,7 @@ export class Kodo implements Adapter {
 
     putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
-            const token = MakeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, NewUploadPolicy(object.bucket, object.key));
+            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const form =  new FormData();
             form.append('key', object.key);
             form.append('token', token);
@@ -207,10 +216,30 @@ export class Kodo implements Adapter {
     //     });
     // }
 
-    // getObjectURL(region: string, object: Object): Promise<URL> {
-    //     return new Promise((resolve, reject) => {
-    //     });
-    // }
+    getObjectURL(region: string, object: Object, deadline?: Date): Promise<URL> {
+        return new Promise((resolve, reject) => {
+            this.listDomains(region, object.bucket).then((domains) => {
+                if (domains.length === 0) {
+                    reject(new Error('no domain found'));
+                    return;
+                }
+                const domainTypeScope = (domain: Domain): number => {
+                    switch (domain.type) {
+                    case 'normal': return 1;
+                    case 'pan': return 2;
+                    case 'test': return 3;
+                    }
+                };
+                domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
+                const domain = domains[0];
+                let url = new URL(`${domain.protocol}://${domain.name}/${object.key}`);
+                if (domain.private) {
+                    url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
+                }
+                resolve(url);
+            }, reject);
+        });
+    }
 }
 
 function encodeObject(object: Object): string {

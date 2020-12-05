@@ -1,5 +1,5 @@
 import { Region } from './region';
-// import { URL } from 'url';
+import { URL } from 'url';
 // import { FileHandle } from 'fs/promises';
 
 export abstract class Adapter {
@@ -23,7 +23,7 @@ export abstract class Adapter {
     // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
     // abstract setObjectHeader(region: string, object: Object, header: SetObjectHeader): Promise<void>;
     // abstract getObject(region: string, object: Object): Promise<ObjectGetResult>;
-    // abstract getObjectURL(region: string, object: Object): Promise<URL>;
+    abstract getObjectURL(region: string, object: Object, deadline?: Date): Promise<URL>;
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
     // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
 
@@ -46,9 +46,10 @@ export interface Bucket {
 }
 
 export interface Domain {
-    domain: string;
+    name: string;
     protocol: string;
     private: boolean;
+    type: 'normal' | 'pan' | 'test';
 }
 
 export interface FrozenInfo {

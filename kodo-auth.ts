@@ -34,7 +34,7 @@ export interface UploadPolicy {
     deadline: number;
 }
 
-export function NewUploadPolicy(bucket: string, key?: string, deadline?: Date): UploadPolicy {
+export function newUploadPolicy(bucket: string, key?: string, deadline?: Date): UploadPolicy {
     let scope = bucket;
     if (key) {
         scope += `:${key}`;
@@ -47,8 +47,20 @@ export function NewUploadPolicy(bucket: string, key?: string, deadline?: Date): 
     };
 }
 
-export function MakeUploadToken(accessKey: string, secretKey: string, uploadPolicy: UploadPolicy): string {
+export function makeUploadToken(accessKey: string, secretKey: string, uploadPolicy: UploadPolicy): string {
     const data = base64ToUrlSafe(base64Encode(JSON.stringify(uploadPolicy)));
     const sign = base64ToUrlSafe(hmacSha1(data, secretKey));
     return `${accessKey}:${sign}:${data}`;
+}
+
+export function signPrivateURL(accessKey: string, secretKey: string, baseURL: URL, deadline?: Date): URL {
+    let baseURLString = baseURL.toString();
+    deadline ??= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const deadlineTimestamp = ~~(deadline.getTime() / 1000);
+
+    baseURLString += `?e=${deadlineTimestamp}`;
+    const sign = base64ToUrlSafe(hmacSha1(baseURLString, secretKey));
+    const token = `${accessKey}:${sign}`;
+    baseURLString += `&token=${token}`
+    return new URL(baseURLString);
 }

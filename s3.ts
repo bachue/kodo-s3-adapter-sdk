@@ -1,6 +1,7 @@
 import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
+import { URL } from 'url';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
@@ -395,7 +396,20 @@ export class S3 implements Adapter {
     //     return new Promise((resolve, _reject) => { resolve(); });
     // }
 
-    // getObjectURL(_region: string, _object: Object): Promise<URL> {
-    //     return new Promise((resolve, _reject) => { resolve(); });
-    // }
+    getObjectURL(region: string, object: Object, deadline?: Date): Promise<URL> {
+        return new Promise((resolve, reject) => {
+            this.getClient(region).then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
+                    let expires: number;
+                    if (deadline) {
+                        expires = ~~((deadline.getTime() - Date.now()) / 1000);
+                    } else {
+                        expires = 7 * 24 * 60 * 60;
+                    }
+                    const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
+                    resolve(new URL(url));
+                }, reject);
+            }, reject);
+        });
+    }
 }

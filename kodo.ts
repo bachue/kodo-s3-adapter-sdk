@@ -2,9 +2,10 @@ import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
+import { URLSearchParams } from 'url';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, NewUploadPolicy, MakeUploadToken } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Object, SetObjectHeader } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -87,6 +88,45 @@ export class Kodo implements Adapter {
         });
     }
 
+    listDomains(region: string, bucket: string): Promise<Array<Domain>> {
+        return new Promise((resolve, reject) => {
+            const domainsQuery = new URLSearchParams();
+            domainsQuery.set('sourceTypes', 'qiniuBucket');
+            domainsQuery.set('sourceQiniuBucket', bucket);
+            domainsQuery.set('operatingState', 'success');
+            domainsQuery.set('limit', '50');
+
+            const getBucketInfoQuery = new URLSearchParams();
+            getBucketInfoQuery.set('bucket', bucket);
+
+            const promises = [
+                this.client.call({
+                    method: 'GET',
+                    serviceName: ServiceName.Api,
+                    path: 'domain',
+                    query: domainsQuery,
+                    dataType: 'json',
+                    regionId: region,
+                }),
+                this.client.call({
+                    method: 'POST',
+                    serviceName: ServiceName.Uc,
+                    path: 'v2/bucketInfo',
+                    query: getBucketInfoQuery,
+                    dataType: 'json',
+                    regionId: region,
+                }),
+            ];
+
+            Promise.all(promises).then((responses) => {
+                const domains: Array<Domain> = responses[0].data.domains.map((domain: any) => {
+                    return { domain: domain.name, protocol: domain.protocol, private: responses[1].data.private != 0 };
+                });
+                resolve(domains);
+            }, reject);
+        });
+    }
+
     listBucketIdNames(): Promise<Array<BucketIdName>> {
         return new Promise((resolve, reject) => {
             this.client.call({
@@ -149,7 +189,7 @@ export class Kodo implements Adapter {
                 }
             }
             form.append('crc32', CRC32.unsigned(data));
-            form.append('file', data, header?.filename);
+            form.append('file', data);
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
@@ -160,6 +200,17 @@ export class Kodo implements Adapter {
             }).then(() => { resolve(); }, reject);
         });
     }
+
+    // getObject(region: string, object: Object): Promise<ObjectGetResult> {
+    //     return new Promise((resolve, reject) => {
+
+    //     });
+    // }
+
+    // getObjectURL(region: string, object: Object): Promise<URL> {
+    //     return new Promise((resolve, reject) => {
+    //     });
+    // }
 }
 
 function encodeObject(object: Object): string {

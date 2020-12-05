@@ -34,7 +34,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 expect(bucket?.regionId).to.equal('na0');
             });
 
-            it('upload file', async() => {
+            it('uploads file', async () => {
                 const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -49,6 +49,20 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 
                 isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
                 expect(isExisted).to.equal(false);
+            });
+
+            it('lists domain', async () => {
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const domains = await qiniuAdapter.listDomains('na0', 'kodo-s3-adapter-sdk');
+                if (mode === KODO_MODE) {
+                    expect(domains).to.have.lengthOf(1);
+                    expect(domains[0].protocol).to.equal('http');
+                    expect(domains[0].private).to.equal(false);
+                } else {
+                    expect(domains).to.have.lengthOf(0);
+                }
             });
         });
     });

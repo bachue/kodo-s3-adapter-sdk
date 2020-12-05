@@ -7,6 +7,7 @@ export abstract class Adapter {
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
     abstract getBucketLocation(bucket: string): Promise<string>;
     abstract listBuckets(): Promise<Array<Bucket>>;
+    abstract listDomains(region: string, bucket: string): Promise<Array<Domain>>;
 
     abstract isExists(region: string, object: Object): Promise<boolean>;
     // abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
@@ -20,7 +21,7 @@ export abstract class Adapter {
     // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;
 
     // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
-    // abstract setObjectHeader(region: string, object: Object, header: ObjectHeader): Promise<void>;
+    // abstract setObjectHeader(region: string, object: Object, header: SetObjectHeader): Promise<void>;
     // abstract getObject(region: string, object: Object): Promise<ObjectGetResult>;
     // abstract getObjectURL(region: string, object: Object): Promise<URL>;
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
@@ -42,6 +43,12 @@ export interface Bucket {
     name: string;
     createDate: Date;
     regionId: string;
+}
+
+export interface Domain {
+    domain: string;
+    protocol: string;
+    private: boolean;
 }
 
 export interface FrozenInfo {
@@ -82,7 +89,6 @@ export interface ObjectGetResult {
 }
 
 export interface SetObjectHeader {
-    filename?: string;
     metadata?: { [key: string]: string; };
 }
 

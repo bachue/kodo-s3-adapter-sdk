@@ -4,7 +4,7 @@ import os from 'os';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Object, SetObjectHeader } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -331,6 +331,10 @@ export class S3 implements Adapter {
         });
     }
 
+    listDomains(_region: string, _bucket: string): Promise<Array<Domain>> {
+        return new Promise((resolve) => { resolve([]); });
+    }
+
     isExists(region: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
             this.getClient(region).then((s3) => {
@@ -386,4 +390,12 @@ export class S3 implements Adapter {
             }, reject);
         });
     }
+
+    // getObject(_region: string, _object: Object): Promise<ObjectGetResult> {
+    //     return new Promise((resolve, _reject) => { resolve(); });
+    // }
+
+    // getObjectURL(_region: string, _object: Object): Promise<URL> {
+    //     return new Promise((resolve, _reject) => { resolve(); });
+    // }
 }

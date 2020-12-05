@@ -4,7 +4,7 @@ import os from 'os';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Object } from './adapter';
+import { Adapter, AdapterOption, Bucket, Object, SetObjectHeader } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -342,6 +342,44 @@ export class S3 implements Adapter {
                             resolve(data.Contents[0].Key === object.key);
                         } else {
                             resolve(false);
+                        }
+                    });
+                }, reject);
+            }, reject);
+        });
+    }
+
+    deleteObject(region: string, object: Object): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.getClient(region).then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
+                    s3.deleteObject({ Bucket: bucketId, Key: object.key }, (err) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    });
+                }, reject);
+            }, reject);
+        });
+    }
+
+    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.getClient(region).then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
+                    const params: AWS.S3.Types.PutObjectRequest = {
+                        Bucket: bucketId,
+                        Key: object.key,
+                        Body: data,
+                        Metadata: header?.metadata,
+                    };
+                    s3.putObject(params, (err) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
                         }
                     });
                 }, reject);

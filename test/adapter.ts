@@ -1,4 +1,5 @@
 import process from 'process';
+import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 
@@ -33,13 +34,20 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 expect(bucket?.regionId).to.equal('na0');
             });
 
-            it('check file existence', async () => {
+            it('upload file', async() => {
                 const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
                 const qiniuAdapter = qiniu.mode(mode);
 
-                let isExisted: boolean = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: '10m' });
+                const buffer = randomBytes(1 << 22);
+                const key = `4m-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, buffer);
+
+                let isExisted: boolean = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
                 expect(isExisted).to.equal(true);
-                isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: '10m.not.exists' });
+
+                await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
+
+                isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
                 expect(isExisted).to.equal(false);
             });
         });

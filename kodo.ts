@@ -1,8 +1,10 @@
 import os from 'os';
 import pkg from './package.json';
+import FormData from 'form-data';
+import CRC32 from 'buffer-crc32';
 import { encode as base64Encode } from 'js-base64';
-import { base64ToUrlSafe } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Object } from './adapter';
+import { base64ToUrlSafe, NewUploadPolicy, MakeUploadToken } from './kodo-auth';
+import { Adapter, AdapterOption, Bucket, Object, SetObjectHeader } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -10,7 +12,7 @@ export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.versio
 export class Kodo implements Adapter {
     private client: KodoHttpClient;
 
-    constructor(adapterOption: AdapterOption) {
+    constructor(private adapterOption: AdapterOption) {
         let userAgent: string = USER_AGENT;
         if (adapterOption.appendedUserAgent) {
             userAgent += `/${adapterOption.appendedUserAgent}`;
@@ -119,6 +121,43 @@ export class Kodo implements Adapter {
                     reject(error);
                 }
             });
+        });
+    }
+
+    deleteObject(region: string, object: Object): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `delete/${encodeObject(object)}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }, reject);
+        });
+    }
+
+    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const token = MakeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, NewUploadPolicy(object.bucket, object.key));
+            const form =  new FormData();
+            form.append('key', object.key);
+            form.append('token', token);
+            if (header?.metadata) {
+                for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
+                    form.append(`x-qn-meta-${metaKey}`, metaValue);
+                }
+            }
+            form.append('crc32', CRC32.unsigned(data));
+            form.append('file', data, header?.filename);
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Up,
+                dataType: 'json',
+                regionId: region,
+                contentType: form.getHeaders()['content-type'],
+                form: form,
+            }).then(() => { resolve(); }, reject);
         });
     }
 }

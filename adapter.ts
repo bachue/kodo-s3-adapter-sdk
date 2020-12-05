@@ -1,6 +1,6 @@
 import { Region } from './region';
-import { URL } from 'url';
-import { FileHandle } from 'fs/promises';
+// import { URL } from 'url';
+// import { FileHandle } from 'fs/promises';
 
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
@@ -16,14 +16,14 @@ export abstract class Adapter {
     // abstract moveObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
     // abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
     // abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
-    // abstract deleteObject(region: string, object: Object): Promise<void>;
+    abstract deleteObject(region: string, object: Object): Promise<void>;
     // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;
 
     // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
     // abstract setObjectHeader(region: string, object: Object, header: ObjectHeader): Promise<void>;
     // abstract getObject(region: string, object: Object): Promise<ObjectGetResult>;
     // abstract getObjectURL(region: string, object: Object): Promise<URL>;
-    // abstract putObject(region: string, object: Object, data: Buffer, header: ObjectHeader): Promise<void>;
+    abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
     // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
 
     // abstract listFiles(region: string, bucket: string, prefix: string, limit?: number, nextContinuationToken?: string): Promise<Array<ObjectInfo>>;
@@ -81,7 +81,12 @@ export interface ObjectGetResult {
     header: ObjectHeader;
 }
 
-export interface ObjectHeader {
+export interface SetObjectHeader {
+    filename?: string;
+    metadata?: { [key: string]: string; };
+}
+
+export interface ObjectHeader extends SetObjectHeader {
     size: number;
     lastModified: Date;
     metadata: { [key: string]: string; };
@@ -95,4 +100,5 @@ export interface ObjectInfo extends Object {
 
 export interface PutCallback {
     progressCallback?: (uploaded: number, total: number) => void;
+    partPutCallback?: (partNumber: number) => void;
 }

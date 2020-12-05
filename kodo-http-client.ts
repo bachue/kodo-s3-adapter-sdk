@@ -1,5 +1,6 @@
 import AsyncLock from 'async-lock';
 import http from 'http';
+import FormData from 'form-data';
 import { HttpClient2, HttpClientResponse, HttpMethod } from 'urllib';
 import { URL, URLSearchParams } from 'url';
 import { Region } from './region';
@@ -27,6 +28,7 @@ export interface RequestOptions {
     serviceName: ServiceName;
     data?: any;
     dataType?: string;
+    form?: FormData;
     contentType?: string;
 }
 
@@ -58,10 +60,13 @@ export class KodoHttpClient {
             'authorization': this.makeAuthorization(url, options),
             'user-agent': this.sharedOptions.userAgent,
         };
+        if (options.contentType !== 'json') {
+            headers['content-type'] = options.contentType;
+        }
 
         KodoHttpClient.httpClient.request(url, {
             method: options.method,
-            data: options.data,
+            data: options.data ?? options.form?.getBuffer(),
             dataType: options.dataType,
             contentType: options.contentType,
             headers: headers,

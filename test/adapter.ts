@@ -1,4 +1,5 @@
 import process from 'process';
+import urllib from 'urllib';
 import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
@@ -47,6 +48,9 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 
                 const url = await qiniuAdapter.getObjectURL('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, new Date(Date.now() + 86400000));
                 expect(url.toString().includes(key)).to.equal(true);
+
+                const response = await urllib.request(url.toString(), { method: 'GET', streaming: true });
+                expect(response.status).to.equal(200);
 
                 await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
 

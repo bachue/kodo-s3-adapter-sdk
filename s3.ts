@@ -5,7 +5,7 @@ import { URL } from 'url';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -392,9 +392,24 @@ export class S3 implements Adapter {
         });
     }
 
-    // getObject(_region: string, _object: Object): Promise<ObjectGetResult> {
-    //     return new Promise((resolve, _reject) => { resolve(); });
-    // }
+    getObject(region: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
+        return new Promise((resolve, reject) => {
+            this.getClient(region).then((s3) => {
+                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
+                    s3.getObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve({
+                                data: Buffer.from(data.Body!),
+                                header: { size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! },
+                            });
+                        }
+                    });
+                }, reject);
+            }, reject);
+        });
+    }
 
     getObjectURL(region: string, object: Object, _domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {

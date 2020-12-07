@@ -1,3 +1,4 @@
+import AsyncLock from 'async-lock';
 import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
@@ -11,7 +12,9 @@ import { KodoHttpClient, ServiceName } from './kodo-http-client';
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
 export class Kodo implements Adapter {
-    private client: KodoHttpClient;
+    private readonly client: KodoHttpClient;
+    private readonly bucketDomainsCache: { [bucketName: string]: Array<Domain>; } = {};
+    private readonly bucketDomainsCacheLock = new AsyncLock();
 
     constructor(private adapterOption: AdapterOption) {
         let userAgent: string = USER_AGENT;
@@ -136,6 +139,25 @@ export class Kodo implements Adapter {
         });
     }
 
+    _listDomains(region: string, bucket: string): Promise<Array<Domain>> {
+        return new Promise((resolve, reject) => {
+            if (this.bucketDomainsCache[bucket]) {
+                resolve(this.bucketDomainsCache[bucket]);
+                return;
+            }
+
+            this.bucketDomainsCacheLock.acquire(bucket, (): Promise<Array<Domain>> => {
+                if (this.bucketDomainsCache[bucket]) {
+                    return new Promise((resolve) => { resolve(this.bucketDomainsCache[bucket]); });
+                }
+                return this.listDomains(region, bucket);
+            }).then((domains: Array<Domain>) => {
+                this.bucketDomainsCache[bucket] = domains;
+                resolve(domains);
+            }, reject);
+        });
+    }
+
     listBucketIdNames(): Promise<Array<BucketIdName>> {
         return new Promise((resolve, reject) => {
             this.client.call({
@@ -223,7 +245,7 @@ export class Kodo implements Adapter {
                     resolve(domain);
                     return;
                 }
-                this.listDomains(region, object.bucket).then((domains) => {
+                this._listDomains(region, object.bucket).then((domains) => {
                     if (domains.length === 0) {
                         reject(new Error('no domain found'));
                         return;

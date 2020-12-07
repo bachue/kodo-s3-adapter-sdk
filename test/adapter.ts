@@ -66,7 +66,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 if (mode === KODO_MODE) {
                     expect(domains).to.have.lengthOf(1);
                     expect(domains[0].protocol).to.equal('http');
-                    expect(domains[0].private).to.equal(false);
+                    expect(domains[0].private).to.equal(true);
                 } else {
                     expect(domains).to.have.lengthOf(0);
                 }

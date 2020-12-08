@@ -254,7 +254,7 @@ export class Kodo implements Adapter {
                     const metadata: { [key: string]: string; } = {};
                     for (const [metaKey, metaValue] of Object.entries(response.headers)) {
                         if (metaKey?.startsWith('x-qn-meta-')) {
-                            metadata[<string>metaKey] = <string>metaValue;
+                            metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
                         }
                     }
                     resolve({ data: data, header: { size: size, lastModified: lastModified, metadata: metadata }});

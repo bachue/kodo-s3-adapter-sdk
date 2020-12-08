@@ -8,7 +8,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
     describe(`${mode} Adapter`, () => {
         context('bucket', () => {
             it('creates a bucket and drops it', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!);
                 const qiniuAdapter = qiniu.mode(mode);
                 const bucketName = `test-bucket-${Math.floor(Math.random() * (2**64 -1))}`;
                 await qiniuAdapter.createBucket('z1', bucketName);
@@ -24,7 +24,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
             });
 
             it('lists all buckets', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buckets = await qiniuAdapter.listBuckets();
@@ -36,7 +36,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
             });
 
             it('uploads file', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 22);
@@ -67,7 +67,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
             });
 
             it('lists domain', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const domains = await qiniuAdapter.listDomains('na0', 'kodo-s3-adapter-sdk');

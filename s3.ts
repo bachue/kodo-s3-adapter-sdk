@@ -241,47 +241,41 @@ export class S3 implements Adapter {
 
     createBucket(region: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoRegionIdToS3Id(region).then((s3Id) => {
-                    s3.createBucket({
-                        Bucket: bucket,
-                        CreateBucketConfiguration: {
-                            LocationConstraint: s3Id,
-                        },
-                    }, function(err) {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            resolve();
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoRegionIdToS3Id(region)]).then(([s3, s3Id]) => {
+                s3.createBucket({
+                    Bucket: bucket,
+                    CreateBucketConfiguration: {
+                        LocationConstraint: s3Id,
+                    },
+                }, function(err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
             }, reject);
         });
     }
 
     deleteBucket(region: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(bucket).then((bucketId) => {
-                    s3.deleteBucket({ Bucket: bucketId }, function(err) {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            resolve();
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+                s3.deleteBucket({ Bucket: bucketId }, function(err) {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
             }, reject);
         });
     }
 
     getBucketLocation(bucket: string): Promise<string> {
         return new Promise((resolve, reject) => {
-            this.getClient().then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(bucket).then((bucketId) => {
-                    this._getBucketLocation(s3, bucketId, resolve, reject);
-                }, reject);
+            Promise.all([this.getClient(), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+                this._getBucketLocation(s3, bucketId, resolve, reject);
             }, reject);
         });
     }
@@ -314,9 +308,8 @@ export class S3 implements Adapter {
                                 this._getBucketLocation(s3, info.Name, resolve, reject);
                             });
                         });
-                        Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)]).then((results) => {
-                            const bucketNames: Array<string> = results[0];
-                            const bucketLocations: Array<string> = results[1];
+                        Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])
+                            .then(([bucketNames, bucketLocations]) => {
                             const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
                                 return {
                                     id: info.Name, name: bucketNames[index],
@@ -338,92 +331,82 @@ export class S3 implements Adapter {
 
     isExists(region: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
-                    s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }, (err, data) => {
-                        if (err) {
-                            reject(err);
-                        } else if (data.Contents && data.Contents.length > 0) {
-                            resolve(data.Contents[0].Key === object.key);
-                        } else {
-                            resolve(false);
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else if (data.Contents && data.Contents.length > 0) {
+                        resolve(data.Contents[0].Key === object.key);
+                    } else {
+                        resolve(false);
+                    }
+                });
             }, reject);
         });
     }
 
     deleteObject(region: string, object: Object): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
-                    s3.deleteObject({ Bucket: bucketId, Key: object.key }, (err) => {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            resolve();
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.deleteObject({ Bucket: bucketId, Key: object.key }, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
             }, reject);
         });
     }
 
     putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
-                    const params: AWS.S3.Types.PutObjectRequest = {
-                        Bucket: bucketId,
-                        Key: object.key,
-                        Body: data,
-                        Metadata: header?.metadata,
-                    };
-                    s3.putObject(params, (err) => {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            resolve();
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const params: AWS.S3.Types.PutObjectRequest = {
+                    Bucket: bucketId,
+                    Key: object.key,
+                    Body: data,
+                    Metadata: header?.metadata,
+                };
+                s3.putObject(params, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
             }, reject);
         });
     }
 
     getObject(region: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
-                    s3.getObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            resolve({
-                                data: Buffer.from(data.Body!),
-                                header: { size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! },
-                            });
-                        }
-                    });
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.getObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({
+                            data: Buffer.from(data.Body!),
+                            header: { size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! },
+                        });
+                    }
+                });
             }, reject);
         });
     }
 
     getObjectURL(region: string, object: Object, _domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {
-            this.getClient(region).then((s3) => {
-                this.fromKodoBucketNameToS3BucketId(object.bucket).then((bucketId) => {
-                    let expires: number;
-                    if (deadline) {
-                        expires = ~~((deadline.getTime() - Date.now()) / 1000);
-                    } else {
-                        expires = 7 * 24 * 60 * 60;
-                    }
-                    const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
-                    resolve(new URL(url));
-                }, reject);
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                let expires: number;
+                if (deadline) {
+                    expires = ~~((deadline.getTime() - Date.now()) / 1000);
+                } else {
+                    expires = 7 * 24 * 60 * 60;
+                }
+                const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
+                resolve(new URL(url));
             }, reject);
         });
     }

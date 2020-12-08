@@ -123,8 +123,8 @@ export class Kodo implements Adapter {
                 }),
             ];
 
-            Promise.all(promises).then((responses) => {
-                const domains: Array<Domain> = responses[0].data.domains.filter((domain: any) => {
+            Promise.all(promises).then(([domainResponse, bucketResponse]) => {
+                const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
                     switch (domain.type) {
                     case 'normal':
                     case 'pan':
@@ -134,7 +134,10 @@ export class Kodo implements Adapter {
                         return false;
                     }
                 }).map((domain: any) => {
-                    return { name: domain.name, protocol: domain.protocol, type: domain.type, private: responses[1].data.private != 0 };
+                    return {
+                        name: domain.name, protocol: domain.protocol, type: domain.type,
+                        private: bucketResponse.data.private != 0,
+                    };
                 });
                 resolve(domains);
             }, reject);

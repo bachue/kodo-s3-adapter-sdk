@@ -8,7 +8,7 @@ import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -249,7 +249,7 @@ export class Kodo implements Adapter {
                     followRedirect: true,
                     gzip: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve({ data: response.data, header: this._getObjectHeader(response)});
+                    resolve({ data: response.data, header: getObjectHeader(response)});
                 }, reject);
             }, reject);
         });
@@ -299,22 +299,10 @@ export class Kodo implements Adapter {
                     retryDelay: 500,
                     followRedirect: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve(this._getObjectHeader(response));
+                    resolve(getObjectHeader(response));
                 }, reject);
             }, reject);
         });
-    }
-
-    private _getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
-        const size: number = parseInt(response.headers['content-length']! as string);
-        const lastModified: Date = new Date(response.headers['last-modified']! as string);
-        const metadata: { [key: string]: string; } = {};
-        for (const [metaKey, metaValue] of Object.entries(response.headers)) {
-            if (metaKey?.startsWith('x-qn-meta-')) {
-                metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
-            }
-        }
-        return { size: size, lastModified: lastModified, metadata: metadata };
     }
 
     moveObject(region: string, transferObject: TransferObject): Promise<void> {
@@ -497,6 +485,59 @@ export class Kodo implements Adapter {
             }, reject);
         });
     }
+
+    freeze(region: string, object: Object): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `chtype/${encodeObject(object)}/type/2`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }, reject);
+        });
+    }
+
+    getFrozenInfo(region: string, object: Object): Promise<FrozenInfo> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `stat/${encodeObject(object)}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then((response) => {
+                if (response.data.type === 2) {
+                    if (response.data.restoreStatus) {
+                        if (response.data.restoreStatus === 1) {
+                            resolve({ status: FrozenStatus.Unfreezing });
+                        } else {
+                            resolve({ status: FrozenStatus.Unfrozen });
+                        }
+                    } else {
+                        resolve({ status: FrozenStatus.Frozen });
+                    }
+                } else {
+                    resolve({ status: FrozenStatus.Normal });
+                }
+            }, reject);
+        });
+    }
+
+    unfreeze(region: string, object: Object, days: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `restoreAr/${encodeObject(object)}/freezeAfterDays/${days}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }, reject);
+        });
+    }
 }
 
 function encodeObject(object: Object): string {
@@ -514,6 +555,19 @@ function encodeBucketKey(bucket: string, key?: string): string {
 function urlSafeBase64(data: string): string {
     return base64ToUrlSafe(base64Encode(data));
 }
+
+function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
+    const size: number = parseInt(response.headers['content-length']! as string);
+    const lastModified: Date = new Date(response.headers['last-modified']! as string);
+    const metadata: { [key: string]: string; } = {};
+    for (const [metaKey, metaValue] of Object.entries(response.headers)) {
+        if (metaKey?.startsWith('x-qn-meta-')) {
+            metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
+        }
+    }
+    return { size: size, lastModified: lastModified, metadata: metadata };
+}
+
 
 export interface BucketIdName {
     id: string;

@@ -6,7 +6,7 @@ import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -537,4 +537,69 @@ export class S3 implements Adapter {
             Promise.all(promises).then(resolve, reject);
         });
     }
+
+    getFrozenInfo(region: string, object: Object): Promise<FrozenInfo> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else if (data.StorageClass?.toLowerCase() === 'glacier') {
+                        if (data.Restore) {
+                            const restoreInfo = parseRestoreInfo(data.Restore);
+                            if (restoreInfo.get('ongoing-request') === 'true') {
+                                resolve({ status: FrozenStatus.Unfreezing });
+                            } else {
+                                const frozenInfo: FrozenInfo = { status: FrozenStatus.Unfrozen };
+                                const expiryDate: string | undefined = restoreInfo.get('expiry-date');
+                                if (expiryDate) {
+                                    frozenInfo.expiryDate = new Date(expiryDate);
+                                }
+                                resolve(frozenInfo);
+                            }
+                        } else {
+                            resolve({ status: FrozenStatus.Frozen });
+                        }
+                    } else {
+                        resolve({ status: FrozenStatus.Normal });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    unfreeze(region: string, object: Object, days: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const params: AWS.S3.Types.RestoreObjectRequest = {
+                    Bucket: bucketId, Key: object.key,
+                    RestoreRequest: {
+                        Days: days,
+                        GlacierJobParameters: { Tier: 'Standard' },
+                    },
+                };
+                s3.restoreObject(params, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            }, reject);
+        });
+    }
+}
+
+function parseRestoreInfo(s: string): Map<string, string> {
+    const matches = s.match(/([\w\-]+)=\"([^\"]+)\"/g);
+    const result = new Map<string, string>();
+    if (matches) {
+        matches.forEach((s) => {
+            const pair = s.match(/([\w\-]+)=\"([^\"]+)\"/);
+            if (pair && pair.length >= 3) {
+                result.set(pair[1], pair[2]);
+            }
+        });
+    }
+    return result;
 }

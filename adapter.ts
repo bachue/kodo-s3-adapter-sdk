@@ -2,8 +2,6 @@ import { Region } from './region';
 import { URL } from 'url';
 // import { FileHandle } from 'fs/promises';
 
-export type BatchCallback = (index: number, error?: Error) => void;
-
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
@@ -12,8 +10,8 @@ export abstract class Adapter {
     abstract listDomains(region: string, bucket: string): Promise<Array<Domain>>;
 
     abstract isExists(region: string, object: Object): Promise<boolean>;
-    // abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
-    // abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
+    abstract getFrozenInfo(region: string, object: Object): Promise<FrozenInfo>;
+    abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
     abstract moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
@@ -28,7 +26,22 @@ export abstract class Adapter {
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
     // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
 
-    // abstract listFiles(region: string, bucket: string, prefix: string, limit?: number, nextContinuationToken?: string): Promise<Array<ObjectInfo>>;
+    // abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
+}
+
+export type BatchCallback = (index: number, error?: Error) => void;
+
+export interface ListFilesOption {
+     delimiter?: string;
+     minKeys?: number;
+     maxKeys?: number;
+     nextContinuationToken?: string;
+}
+
+export interface ListedFiles {
+    nextContinuationToken?: string,
+    objects: Array<ObjectInfo>;
+    commonPrefixes: Array<ObjectInfo>;
 }
 
 export interface AdapterOption {

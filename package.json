@@ -9,7 +9,7 @@
   "private": false,
   "scripts": {
     "tsc": "tsc",
-    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha --timeout 300000 -r ts-node/register -j 1 test/**/*.ts"
+    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha --timeout 600000 -r ts-node/register -j 1 test/**/*.ts"
   },
   "dependencies": {
     "@types/async-lock": "^1.1.2",

@@ -4,16 +4,19 @@ import { Semaphore } from 'semaphore-promise';
 import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
-import { TransferObject } from '../adapter';
+import { TransferObject, FrozenStatus } from '../adapter';
+import { Kodo } from '../kodo';
 
 [KODO_MODE, S3_MODE].forEach((mode: string) => {
     describe(`${mode} Adapter`, () => {
         context('bucket', () => {
             const bucketName = process.env.QINIU_TEST_BUCKET!;
             const bucketRegionId = process.env.QINIU_TEST_BUCKET_REGION_ID!;
+            const accessKey = process.env.QINIU_ACCESS_KEY!;
+            const secretKey = process.env.QINIU_SECRET_KEY!;
 
             it('creates a bucket and drops it', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
                 const bucketName = `test-bucket-${Math.floor(Math.random() * (2**64 -1))}`;
                 await qiniuAdapter.createBucket(bucketRegionId, bucketName);
@@ -29,7 +32,7 @@ import { TransferObject } from '../adapter';
             });
 
             it('lists all buckets', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buckets = await qiniuAdapter.listBuckets();
@@ -39,7 +42,7 @@ import { TransferObject } from '../adapter';
             });
 
             it('uploads file', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);
@@ -88,7 +91,7 @@ import { TransferObject } from '../adapter';
             });
 
             it('lists domain', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const domains = await qiniuAdapter.listDomains(bucketRegionId, bucketName);
@@ -102,7 +105,7 @@ import { TransferObject } from '../adapter';
             });
 
             it('moves and copies file', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);
@@ -146,7 +149,7 @@ import { TransferObject } from '../adapter';
             });
 
             it('moves, copies and deletes files', async () => {
-                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
                 const semaphore = new Semaphore(5);
 
@@ -252,6 +255,29 @@ import { TransferObject } from '../adapter';
 
                     await qiniuAdapter.deleteObjects(bucketRegionId, bucketName, transferObjects.map((transferObject) => transferObject.to.key));
                 }
+            });
+
+            it('unfreeze files', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const kodo = new Kodo({ accessKey: accessKey, secretKey: secretKey, regions: [] });
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes(1 << 12);
+                const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer);
+
+                let frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(frozenInfo.status).to.equal(FrozenStatus.Normal);
+
+                await kodo.freeze(bucketRegionId, { bucket: bucketName, key: key });
+                frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(frozenInfo.status).to.equal(FrozenStatus.Frozen);
+
+                await kodo.unfreeze(bucketRegionId, { bucket: bucketName, key: key }, 1);
+                frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(frozenInfo.status).to.equal(FrozenStatus.Unfreezing);
+
+                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
         });
     });

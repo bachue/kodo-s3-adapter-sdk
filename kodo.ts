@@ -8,7 +8,7 @@ import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -558,6 +558,7 @@ function urlSafeBase64(data: string): string {
 
 function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
     const size: number = parseInt(response.headers['content-length']! as string);
+    const contentType: string = response.headers['content-type']! as string;
     const lastModified: Date = new Date(response.headers['last-modified']! as string);
     const metadata: { [key: string]: string; } = {};
     for (const [metaKey, metaValue] of Object.entries(response.headers)) {
@@ -565,7 +566,7 @@ function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
             metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
         }
     }
-    return { size: size, lastModified: lastModified, metadata: metadata };
+    return { size: size, contentType: contentType, lastModified: lastModified, metadata: metadata };
 }
 
 

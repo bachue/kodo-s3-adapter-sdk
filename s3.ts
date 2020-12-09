@@ -389,7 +389,7 @@ export class S3 implements Adapter {
                     } else {
                         resolve({
                             data: Buffer.from(data.Body!),
-                            header: { size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! },
+                            header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
                         });
                     }
                 });
@@ -419,7 +419,7 @@ export class S3 implements Adapter {
                     if (err) {
                         reject(err);
                     } else {
-                        resolve({ size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! });
+                        resolve({ size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! });
                     }
                 });
             }, reject);

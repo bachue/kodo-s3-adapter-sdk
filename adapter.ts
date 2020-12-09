@@ -39,9 +39,9 @@ export interface ListFilesOption {
 }
 
 export interface ListedFiles {
-    nextContinuationToken?: string,
     objects: Array<ObjectInfo>;
-    commonPrefixes: Array<ObjectInfo>;
+    commonPrefixes?: Array<ObjectInfo>;
+    nextContinuationToken?: string,
 }
 
 export interface AdapterOption {
@@ -109,12 +109,14 @@ export interface SetObjectHeader {
 
 export interface ObjectHeader extends SetObjectHeader {
     size: number;
+    contentType: string;
     lastModified: Date;
     metadata: { [key: string]: string; };
 }
 
 export interface ObjectInfo extends Object {
     size: number;
+    contentType: string;
     lastModified: Date;
     storageClass: StorageClass;
 }

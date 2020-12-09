@@ -7,7 +7,7 @@ import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -314,6 +314,32 @@ export class Kodo implements Adapter {
             }
         }
         return { size: size, lastModified: lastModified, metadata: metadata };
+    }
+
+    moveObject(region: string, transferObject: TransferObject): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }, reject);
+        });
+    }
+
+    copyObject(region: string, transferObject: TransferObject): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }, reject);
+        });
     }
 }
 

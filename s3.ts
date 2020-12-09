@@ -5,7 +5,7 @@ import { URL } from 'url';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -419,6 +419,37 @@ export class S3 implements Adapter {
                         reject(err);
                     } else {
                         resolve({ size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    moveObject(region: string, transferObject: TransferObject): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.copyObject(region, transferObject).then(() => {
+                this.deleteObject(region, transferObject.from).then(resolve, reject);
+            }, reject);
+        });
+    }
+
+    copyObject(region: string, transferObject: TransferObject): Promise<void> {
+        return new Promise((resolve, reject) => {
+            Promise.all([
+                this.getClient(region),
+                this.fromKodoBucketNameToS3BucketId(transferObject.from.bucket),
+                this.fromKodoBucketNameToS3BucketId(transferObject.to.bucket),
+            ]).then(([s3, fromBucketId, toBucketId]) => {
+                const params: AWS.S3.Types.CopyObjectRequest = {
+                    Bucket: toBucketId, Key: transferObject.to.key,
+                    CopySource: `${fromBucketId}/${transferObject.from.key}`,
+                    MetadataDirective: 'COPY',
+                };
+                s3.copyObject(params, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
                     }
                 });
             }, reject);

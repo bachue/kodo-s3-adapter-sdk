@@ -13,9 +13,9 @@ export abstract class Adapter {
     // abstract getFrozenInfo(region: string, object: Object, frozen: string): Promise<FrozenInfo>;
     // abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
 
-    // abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
+    abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
     // abstract moveObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
-    // abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
+    abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
     // abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
     abstract deleteObject(region: string, object: Object): Promise<void>;
     // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;

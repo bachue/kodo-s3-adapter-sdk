@@ -97,6 +97,50 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                     expect(domains).to.have.lengthOf(0);
                 }
             });
+
+            it('moves and copies file', async () => {
+                const qiniu = new Qiniu(process.env.QINIU_ACCESS_KEY!, process.env.QINIU_SECRET_KEY!);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes(1 << 12);
+                const key = `4m-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, buffer, { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+
+                const keyCopied = `${key}-copy`;
+                await qiniuAdapter.copyObject('na0', { from: { bucket: 'kodo-s3-adapter-sdk', key: key }, to: { bucket: 'kodo-s3-adapter-sdk', key: keyCopied } });
+
+                {
+                    const header = await qiniuAdapter.getObjectHeader('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyCopied });
+                    expect(header.size).to.equal(1 << 12);
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+                    expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
+
+                await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyCopied });
+
+                const keyMoved = `${key}-move`;
+                await qiniuAdapter.moveObject('na0', { from: { bucket: 'kodo-s3-adapter-sdk', key: key }, to: { bucket: 'kodo-s3-adapter-sdk', key: keyMoved } });
+
+                {
+                    const header = await qiniuAdapter.getObjectHeader('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyMoved });
+                    expect(header.size).to.equal(1 << 12);
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+                    expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
+
+                await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyMoved });
+
+                let isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
+                expect(isExisted).to.equal(false);
+
+                isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyCopied });
+                expect(isExisted).to.equal(false);
+
+                isExisted = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: keyMoved });
+                expect(isExisted).to.equal(false);
+            });
         });
     });
 });

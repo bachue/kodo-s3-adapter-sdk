@@ -1,11 +1,12 @@
 import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
-import { URL } from 'url';
 import pkg from './package.json';
+import { URL } from 'url';
+import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -453,6 +454,87 @@ export class S3 implements Adapter {
                     }
                 });
             }, reject);
+        });
+    }
+
+    moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return new Promise((resolve, reject) => {
+            const semaphore = new Semaphore(5);
+            const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
+                return new Promise((resolve) => {
+                    semaphore.acquire().then((release) => {
+                        this.moveObject(region, transferObject).then(() => {
+                            if (callback) {
+                                callback(index);
+                            }
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
+                        }, (err) => {
+                            const error = new Error(err);
+                            if (callback) {
+                                callback(index, error);
+                            }
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
+                        }).finally(() => {
+                            release();
+                        });
+                    });
+                });
+            });
+            Promise.all(promises).then(resolve, reject);
+        });
+    }
+
+    copyObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return new Promise((resolve, reject) => {
+            const semaphore = new Semaphore(5);
+            const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
+                return new Promise((resolve) => {
+                    semaphore.acquire().then((release) => {
+                        this.copyObject(region, transferObject).then(() => {
+                            if (callback) {
+                                callback(index);
+                            }
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
+                        }, (err) => {
+                            const error = new Error(err);
+                            if (callback) {
+                                callback(index, error);
+                            }
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
+                        }).finally(() => {
+                            release();
+                        });
+                    });
+                });
+            });
+            Promise.all(promises).then(resolve, reject);
+        });
+    }
+
+    deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return new Promise((resolve, reject) => {
+            const semaphore = new Semaphore(5);
+            const promises: Array<Promise<PartialObjectError>> = keys.map((key, index) => {
+                return new Promise((resolve) => {
+                    semaphore.acquire().then((release) => {
+                        this.deleteObject(region, { bucket: bucket, key: key }).then(() => {
+                            if (callback) {
+                                callback(index);
+                            }
+                            resolve({ bucket: bucket, key: key });
+                        }, (err) => {
+                            const error = new Error(err);
+                            if (callback) {
+                                callback(index, error);
+                            }
+                            resolve({ bucket: bucket, key: key, error: error });
+                        }).finally(() => {
+                            release();
+                        });
+                    });
+                });
+            });
+            Promise.all(promises).then(resolve, reject);
         });
     }
 }

@@ -3,11 +3,12 @@ import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
+import { Semaphore } from 'semaphore-promise';
 import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -339,6 +340,161 @@ export class Kodo implements Adapter {
                 regionId: region,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }, reject);
+        });
+    }
+
+    moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.moveOrCopyObjects('move', 100, region, transferObjects, callback);
+    }
+
+    copyObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.moveOrCopyObjects('copy', 100, region, transferObjects, callback);
+    }
+
+    private moveOrCopyObjects(op: string, batchCount: number, region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        const semaphore = new Semaphore(5);
+        const transferObjectsBatches: Array<Array<TransferObject>> = [];
+
+        while (transferObjects.length >= batchCount) {
+            const batch: Array<TransferObject> = transferObjects.splice(0, batchCount);
+            transferObjectsBatches.push(batch);
+        }
+        if (transferObjects.length > 0) {
+            transferObjectsBatches.push(transferObjects);
+        }
+
+        let counter = 0;
+        const promises: Array<Promise<Array<PartialObjectError>>> = transferObjectsBatches.map((batch) => {
+            const firstIndexInCurrentBatch = counter;
+            counter += batch.length;
+            return new Promise((resolve) => {
+                const params = new URLSearchParams();
+                for (const transferObject of batch) {
+                    params.append('op', `/${op}/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`);
+                }
+                semaphore.acquire().then((release) => {
+                    this.client.call({
+                        method: 'POST',
+                        serviceName: ServiceName.Rs,
+                        path: 'batch',
+                        dataType: 'json',
+                        regionId: region,
+                        contentType: 'application/x-www-form-urlencoded',
+                        data: params.toString(),
+                    }).then((response) => {
+                        const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
+                            const currentIndex = firstIndexInCurrentBatch + index;
+                            const result: PartialObjectError = { bucket: batch[index].from.bucket, key: batch[index].from.key };
+                            if (item?.data?.error) {
+                                const error = new Error(item?.data?.error);
+                                if (callback) {
+                                    callback(currentIndex, error);
+                                }
+                                result.error = error;
+                            } else if (callback) {
+                                callback(currentIndex);
+                            }
+                            return result;
+                        });
+                        resolve(results);
+                    }, (error) => {
+                        const results: Array<PartialObjectError> = batch.map((transferObject, index) => {
+                            const currentIndex = firstIndexInCurrentBatch + index;
+                            if (callback) {
+                                callback(currentIndex, error);
+                            }
+                            return { bucket: transferObject.from.bucket, key: transferObject.from.key, error: error };
+                        });
+                        resolve(results);
+                    }).finally(() => {
+                        release();
+                    });
+                });
+            });
+        });
+
+        return new Promise((resolve, reject) => {
+            Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
+                let results: Array<PartialObjectError> = [];
+                for (const batch of batches) {
+                    results = results.concat(batch);
+                }
+                resolve(results);
+            }, reject);
+        });
+    }
+
+    deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        const semaphore = new Semaphore(5);
+        const keysBatches: Array<Array<string>> = [];
+        const batchCount = 1000;
+
+        while (keys.length >= batchCount) {
+            const batch: Array<string> = keys.splice(0, batchCount);
+            keysBatches.push(batch);
+        }
+        if (keys.length > 0) {
+            keysBatches.push(keys);
+        }
+
+        let counter = 0;
+        const promises: Array<Promise<Array<PartialObjectError>>> = keysBatches.map((batch) => {
+            const firstIndexInCurrentBatch = counter;
+            counter += batch.length;
+            return new Promise((resolve) => {
+                const params = new URLSearchParams();
+                for (const key of batch) {
+                    params.append('op', `/delete/${encodeObject({ bucket: bucket, key: key })}`);
+                }
+                semaphore.acquire().then((release) => {
+                    this.client.call({
+                        method: 'POST',
+                        serviceName: ServiceName.Rs,
+                        path: 'batch',
+                        dataType: 'json',
+                        regionId: region,
+                        contentType: 'application/x-www-form-urlencoded',
+                        data: params.toString(),
+                    }).then((response) => {
+                        const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
+                            const currentIndex = firstIndexInCurrentBatch + index;
+                            const result: PartialObjectError = { bucket: bucket, key: batch[index] };
+                            if (item?.data?.error) {
+                                const error = new Error(item?.data?.error);
+                                if (callback) {
+                                    callback(currentIndex, error);
+                                }
+                                result.error = error;
+                            } else if (callback) {
+                                callback(currentIndex);
+                            }
+                            return result;
+                        });
+                        resolve(results);
+                    }, (error) => {
+                        const results: Array<PartialObjectError> = batch.map((key, index) => {
+                            const currentIndex = firstIndexInCurrentBatch + index;
+                            if (callback) {
+                                callback(currentIndex, error);
+                            }
+                            return { bucket: bucket, key: key, error: error };
+                        });
+                        resolve(results);
+                    }).finally(() => {
+                        release();
+                    });
+                });
+            });
+        });
+
+        return new Promise((resolve, reject) => {
+            Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
+                let results: Array<PartialObjectError> = [];
+                for (const batch of batches) {
+                    results = results.concat(batch);
+                }
+                resolve(results);
+            }, reject);
         });
     }
 }

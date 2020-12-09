@@ -1083,6 +1083,10 @@ sax@>=0.6.0:
   version "1.2.4"
   resolved "https://registry.npm.taobao.org/sax/download/sax-1.2.4.tgz#2816234e2378bddc4e5354fab5caa895df7100d9"
 
+semaphore-promise@^1.2.0:
+  version "1.2.0"
+  resolved "https://registry.npm.taobao.org/semaphore-promise/download/semaphore-promise-1.2.0.tgz#eb590193b07c4153e0a689bacb12c561a7b1cc6c"
+
 semver@^5.0.1, semver@^5.3.0:
   version "5.7.1"
   resolved "https://registry.npm.taobao.org/semver/download/semver-5.7.1.tgz#a954f931aeba508d307bbf069eff0c01c96116f7"

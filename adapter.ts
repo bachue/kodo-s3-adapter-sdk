@@ -2,6 +2,8 @@ import { Region } from './region';
 import { URL } from 'url';
 // import { FileHandle } from 'fs/promises';
 
+export type BatchCallback = (index: number, error?: Error) => void;
+
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
@@ -14,11 +16,11 @@ export abstract class Adapter {
     // abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
-    // abstract moveObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
+    abstract moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
     abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
-    // abstract copyObjects(region: string, transferObjects: Array<TransferObject>): Promise<Array<PartialObjectError>>;
+    abstract copyObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
     abstract deleteObject(region: string, object: Object): Promise<void>;
-    // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;
+    abstract deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
 
     abstract getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader>;
     abstract getObject(region: string, object: Object, domain?: Domain): Promise<ObjectGetResult>;

@@ -20,8 +20,7 @@ export abstract class Adapter {
     abstract deleteObject(region: string, object: Object): Promise<void>;
     // abstract deleteObjects(region: string, bucket: string, keys: Array<string>): Promise<Array<PartialObjectError>>;
 
-    // abstract getObjectHeader(region: string, object: Object): Promise<ObjectHeader>;
-    // abstract setObjectHeader(region: string, object: Object, header: SetObjectHeader): Promise<void>;
+    abstract getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader>;
     abstract getObject(region: string, object: Object, domain?: Domain): Promise<ObjectGetResult>;
     abstract getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL>;
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;

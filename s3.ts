@@ -5,7 +5,7 @@ import { URL } from 'url';
 import pkg from './package.json';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -407,6 +407,20 @@ export class S3 implements Adapter {
                 }
                 const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
                 resolve(new URL(url));
+            }, reject);
+        });
+    }
+
+    getObjectHeader(region: string, object: Object, _domain?: Domain): Promise<ObjectHeader> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({ size: data.ContentLength!, lastModified: data.LastModified!, metadata: data.Metadata! });
+                    }
+                });
             }, reject);
         });
     }

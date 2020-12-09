@@ -7,7 +7,7 @@ import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -248,16 +248,7 @@ export class Kodo implements Adapter {
                     followRedirect: true,
                     gzip: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    const data: Buffer = response.data;
-                    const size: number = parseInt(response.headers['content-length']! as string);
-                    const lastModified: Date = new Date(response.headers['last-modified']! as string);
-                    const metadata: { [key: string]: string; } = {};
-                    for (const [metaKey, metaValue] of Object.entries(response.headers)) {
-                        if (metaKey?.startsWith('x-qn-meta-')) {
-                            metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
-                        }
-                    }
-                    resolve({ data: data, header: { size: size, lastModified: lastModified, metadata: metadata }});
+                    resolve({ data: response.data, header: this._getObjectHeader(response)});
                 }, reject);
             }, reject);
         });
@@ -295,6 +286,34 @@ export class Kodo implements Adapter {
                 resolve(url);
             }, reject);
         });
+    }
+
+    getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader> {
+        return new Promise((resolve, reject) => {
+            this.getObjectURL(region, object, domain).then((url) => {
+                Kodo.httpClient.request(url.toString(), {
+                    method: 'HEAD',
+                    timeout: [30000, 300000],
+                    retry: 10,
+                    retryDelay: 500,
+                    followRedirect: true,
+                }).then((response: HttpClientResponse<Buffer>) => {
+                    resolve(this._getObjectHeader(response));
+                }, reject);
+            }, reject);
+        });
+    }
+
+    private _getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
+        const size: number = parseInt(response.headers['content-length']! as string);
+        const lastModified: Date = new Date(response.headers['last-modified']! as string);
+        const metadata: { [key: string]: string; } = {};
+        for (const [metaKey, metaValue] of Object.entries(response.headers)) {
+            if (metaKey?.startsWith('x-qn-meta-')) {
+                metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
+            }
+        }
+        return { size: size, lastModified: lastModified, metadata: metadata };
     }
 }
 

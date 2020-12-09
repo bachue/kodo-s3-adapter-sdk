@@ -46,24 +46,37 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
                 let isExisted: boolean = await qiniuAdapter.isExists('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
                 expect(isExisted).to.equal(true);
 
-                const url = await qiniuAdapter.getObjectURL('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, undefined, new Date(Date.now() + 86400000));
-                expect(url.toString().includes(key)).to.equal(true);
-                const response = await urllib.request(url.toString(), { method: 'GET', streaming: true });
-                expect(response.status).to.equal(200);
-                if (mode == KODO_MODE) {
-                    expect(response.headers['x-qn-meta-key-a']).to.equal('Value-A');
-                    expect(response.headers['x-qn-meta-key-b']).to.equal('Value-B');
-                } else if (mode == S3_MODE) {
-                    expect(response.headers['x-amz-meta-key-a']).to.equal('Value-A');
-                    expect(response.headers['x-amz-meta-key-b']).to.equal('Value-B');
+                {
+                    const url = await qiniuAdapter.getObjectURL('na0', { bucket: 'kodo-s3-adapter-sdk', key: key }, undefined, new Date(Date.now() + 86400000));
+                    expect(url.toString().includes(key)).to.equal(true);
+                    const response = await urllib.request(url.toString(), { method: 'GET', streaming: true });
+                    expect(response.status).to.equal(200);
+                    if (mode == KODO_MODE) {
+                        expect(response.headers['x-qn-meta-key-a']).to.equal('Value-A');
+                        expect(response.headers['x-qn-meta-key-b']).to.equal('Value-B');
+                    } else if (mode == S3_MODE) {
+                        expect(response.headers['x-amz-meta-key-a']).to.equal('Value-A');
+                        expect(response.headers['x-amz-meta-key-b']).to.equal('Value-B');
+                    }
+                    response.res.destroy();
                 }
-                response.res.destroy();
 
-                const result = await qiniuAdapter.getObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
-                expect(result.data).to.eql(buffer);
-                expect(result.header.size).to.equal(1 << 22);
-                expect(result.header.metadata['key-a']).to.equal('Value-A');
-                expect(result.header.metadata['key-b']).to.equal('Value-B');
+                {
+                    const result = await qiniuAdapter.getObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
+                    expect(result.data).to.eql(buffer);
+                    expect(result.header.size).to.equal(1 << 22);
+                    expect(result.header.metadata['key-a']).to.equal('Value-A');
+                    expect(result.header.metadata['key-b']).to.equal('Value-B');
+                    expect(result.header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
+
+                {
+                    const header = await qiniuAdapter.getObjectHeader('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
+                    expect(header.size).to.equal(1 << 22);
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+                    expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
 
                 await qiniuAdapter.deleteObject('na0', { bucket: 'kodo-s3-adapter-sdk', key: key });
 

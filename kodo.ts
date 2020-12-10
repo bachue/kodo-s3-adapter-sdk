@@ -8,7 +8,8 @@ import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListFilesOption, ListedFiles, StorageClass } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -537,6 +538,90 @@ export class Kodo implements Adapter {
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }, reject);
         });
+    }
+
+    listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles> {
+        return new Promise((resolve, reject) => {
+            const results: ListedFiles = { objects: [] };
+            this._listFiles(region, bucket, prefix, resolve, reject, results, option);
+        });
+    }
+
+    private _listFiles(region: string, bucket: string, prefix: string, resolve: any, reject: any, results: ListedFiles, option?: ListFilesOption): void {
+        const query = new URLSearchParams();
+        query.set('bucket', bucket);
+        query.set('prefix', prefix);
+        if (option?.nextContinuationToken) {
+            query.set('marker', option.nextContinuationToken);
+        }
+        if (option?.maxKeys) {
+            query.set('limit', option.maxKeys.toString());
+        }
+        if (option?.delimiter) {
+            query.set('delimiter', option.delimiter);
+        }
+        const newOption: ListFilesOption = {
+            delimiter: option?.delimiter,
+        };
+
+        this.client.call({
+            method: 'POST',
+            serviceName: ServiceName.Rsf,
+            path: 'list',
+            dataType: 'json',
+            regionId: region,
+            query: query,
+            contentType: 'application/x-www-form-urlencoded',
+        }).then((response) => {
+            let isEmpty = true;
+            if (response.data.items && response.data.items.length > 0) {
+                isEmpty = false;
+                results.objects = results.objects.concat(response.data.items.map((item: any) => {
+                    return {
+                        bucket: bucket, key: item.key, size: item.fsize,
+                        lastModified: new Date(item.putTime / 10000), storageClass: toStorageClass(item.type),
+                    };
+                }));
+            }
+            if (response.data.commonPrefixes && response.data.commonPrefixes.length > 0) {
+                isEmpty = false;
+                if (!results.commonPrefixes) {
+                    results.commonPrefixes = [];
+                }
+                results.commonPrefixes = results.commonPrefixes.concat(response.data.commonPrefixes.map((commonPrefix: string) => {
+                    return { bucket: bucket, key: commonPrefix };
+                }));
+            }
+            if (!isEmpty && response.data.marker) {
+                newOption.nextContinuationToken = response.data.marker;
+                if (option?.minKeys) {
+                    let resultsSize = results.objects.length;
+                    if (results.commonPrefixes) {
+                        resultsSize += results.commonPrefixes.length;
+                    }
+                    if (resultsSize < option.minKeys) {
+                        newOption.minKeys = option.minKeys;
+                        newOption.maxKeys = option.minKeys - resultsSize;
+                        this._listFiles(region, bucket, prefix, resolve, reject, results, newOption);
+                        return;
+                    }
+                }
+            }
+            resolve(results);
+        }, reject);
+    }
+}
+
+function toStorageClass(type?: number): StorageClass {
+    switch (type ?? 0) {
+    case 0:
+        return StorageClass.Standard;
+    case 1:
+        return StorageClass.InfrequentAccess;
+    case 2:
+        return StorageClass.Glacier;
+    default:
+        throw new Error(`Unknown file type: ${type}`);
     }
 }
 

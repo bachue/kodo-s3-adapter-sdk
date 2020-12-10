@@ -26,7 +26,7 @@ export abstract class Adapter {
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
     // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
 
-    // abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
+    abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
 }
 
 export type BatchCallback = (index: number, error?: Error) => void;
@@ -40,7 +40,7 @@ export interface ListFilesOption {
 
 export interface ListedFiles {
     objects: Array<ObjectInfo>;
-    commonPrefixes?: Array<ObjectInfo>;
+    commonPrefixes?: Array<Object>;
     nextContinuationToken?: string,
 }
 
@@ -116,7 +116,6 @@ export interface ObjectHeader extends SetObjectHeader {
 
 export interface ObjectInfo extends Object {
     size: number;
-    contentType: string;
     lastModified: Date;
     storageClass: StorageClass;
 }

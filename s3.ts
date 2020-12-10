@@ -6,7 +6,8 @@ import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
 import { Kodo } from './kodo';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus } from './adapter';
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles, ListFilesOption, StorageClass } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -588,6 +589,77 @@ export class S3 implements Adapter {
             }, reject);
         });
     }
+
+    listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+                const results: ListedFiles = { objects: [] };
+                this._listFiles(region, s3, bucket, bucketId, prefix, resolve, reject, results, option);
+            }, reject);
+        });
+    }
+
+    private _listFiles(region: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedFiles, option?: ListFilesOption): void {
+        const params: AWS.S3.Types.ListObjectsRequest = {
+            Bucket: bucketId, Delimiter: option?.delimiter, Marker: option?.nextContinuationToken, MaxKeys: option?.maxKeys, Prefix: prefix,
+        };
+        const newOption: ListFilesOption = {
+            delimiter: option?.delimiter,
+        };
+        s3.listObjects(params, (err, data) => {
+            if (err) {
+                reject(err);
+            } else {
+                let isEmpty = true;
+                if (data.Contents && data.Contents.length > 0) {
+                    isEmpty = false;
+                    results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
+                        return {
+                            bucket: bucket, key: object.Key!, size: object.Size!,
+                            lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
+                        };
+                    }));
+                }
+                if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+                    isEmpty = false;
+                    if (!results.commonPrefixes) {
+                        results.commonPrefixes = [];
+                    }
+                    results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
+                        return { bucket: bucket, key: commonPrefix.Prefix! };
+                    }));
+                }
+                if (!isEmpty && data.NextMarker) {
+                    newOption.nextContinuationToken = data.NextMarker;
+                    if (option?.minKeys) {
+                        let resultsSize = results.objects.length;
+                        if (results.commonPrefixes) {
+                            resultsSize += results.commonPrefixes.length;
+                        }
+                        if (resultsSize < option.minKeys) {
+                            newOption.minKeys = option.minKeys;
+                            newOption.maxKeys = option.minKeys - resultsSize;
+                            this._listFiles(region, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
+                            return;
+                        }
+                    }
+                }
+                resolve(results);
+            }
+        });
+    }
+}
+
+function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass {
+    const s = (storageClass ?? 'standard').toLowerCase();
+    if (s === 'standard') {
+        return StorageClass.Standard;
+    } else if (s.includes('_ia')) {
+        return StorageClass.InfrequentAccess;
+    } else if (s === 'glacier') {
+        return StorageClass.Glacier;
+    }
+    throw new Error(`Unknown file type: ${storageClass}`);
 }
 
 function parseRestoreInfo(s: string): Map<string, string> {

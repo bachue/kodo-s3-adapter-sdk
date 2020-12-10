@@ -100,7 +100,7 @@ import { Kodo } from '../kodo';
                     expect(domains[0].protocol).to.equal('http');
                     expect(domains[0].private).to.equal(true);
                 } else {
-                    expect(domains).to.have.lengthOf(0);
+                    expect(domains).to.be.empty;
                 }
             });
 
@@ -154,7 +154,7 @@ import { Kodo } from '../kodo';
                 const semaphore = new Semaphore(5);
 
                 const seed = Math.floor(Math.random() * (2**64 -1));
-                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `4k-${seed}-${idx}`);
+                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
                 const uploadPromises = keys.map((key) => {
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
@@ -278,6 +278,53 @@ import { Kodo } from '../kodo';
                 expect(frozenInfo.status).to.equal(FrozenStatus.Unfreezing);
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+            });
+
+            it('list files', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const semaphore = new Semaphore(5);
+
+                const seed = Math.floor(Math.random() * (2**64 -1));
+                let keys: Array<string> = [`10b-${seed}/`];
+                keys = keys.concat(new Array(250).fill('').map((_, idx: number) => {
+                    let path = keys[0];
+                    const idxParts = idx.toString().split('');
+                    path += idxParts.join('/');
+                    if (idxParts.length < 3) {
+                        path += '/';
+                    }
+                    return path;
+                }));
+
+                const uploadPromises = keys.map((key) => {
+                    return new Promise((resolve, reject) => {
+                        semaphore.acquire().then((release) => {
+                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10))
+                                        .then(resolve, reject)
+                                        .finally(() => { release(); });
+                        });
+                    });
+                });
+                await Promise.all(uploadPromises);
+
+                let listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 100, maxKeys: 20 });
+                expect(listedFiles.objects).to.have.lengthOf(100);
+
+                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 110, maxKeys: 20 });
+                expect(listedFiles.objects).to.have.lengthOf(110);
+
+                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedFiles.objects).to.have.lengthOf(1);
+                expect(listedFiles.commonPrefixes).to.have.lengthOf(10);
+
+                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, `${keys[0]}1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedFiles.objects).to.have.lengthOf(1);
+                expect(listedFiles.commonPrefixes).to.have.lengthOf(10);
+
+                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, `${keys[0]}1/1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedFiles.objects).to.have.lengthOf(11);
+                expect(listedFiles.commonPrefixes).to.be.undefined;
             });
         });
     });

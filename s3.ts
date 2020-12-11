@@ -2,12 +2,14 @@ import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
 import pkg from './package.json';
+import md5 from 'js-md5';
 import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
 import { Kodo } from './kodo';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles, ListFilesOption, StorageClass } from './adapter';
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles, ListFilesOption,
+         InitPartsOutput, UploadPartOutput, StorageClass, Part } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -646,6 +648,61 @@ export class S3 implements Adapter {
                 }
                 resolve(results);
             }
+        });
+    }
+
+    createMultipartUpload(region: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.createMultipartUpload({ Bucket: bucketId, Key: object.key, Metadata: header?.metadata }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({ uploadId: data.UploadId! });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
+               data: Buffer, _progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const params: AWS.S3.Types.UploadPartRequest = {
+                    Bucket: bucketId, Key: object.key, Body: data, ContentMD5: md5.hex(data),
+                    PartNumber: partNumber, UploadId: uploadId,
+                };
+                s3.uploadPart(params, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve({ etag: data.ETag! });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, _header?: SetObjectHeader): Promise<void> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const params: AWS.S3.Types.CompleteMultipartUploadRequest = {
+                    Bucket: bucketId, Key: object.key, UploadId: uploadId,
+                    MultipartUpload: {
+                        Parts: parts.map((part) => {
+                            return { PartNumber: part.partNumber, ETag: part.etag };
+                        }),
+                    },
+                };
+                s3.completeMultipartUpload(params, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            }, reject);
         });
     }
 }

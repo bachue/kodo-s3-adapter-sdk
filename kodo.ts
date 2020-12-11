@@ -3,13 +3,15 @@ import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
+import md5 from 'js-md5';
 import { Semaphore } from 'semaphore-promise';
 import { URL, URLSearchParams } from 'url';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListFilesOption, ListedFiles, StorageClass } from './adapter';
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListFilesOption, ListedFiles,
+         InitPartsOutput, UploadPartOutput, StorageClass, Part } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -609,6 +611,69 @@ export class Kodo implements Adapter {
             }
             resolve(results);
         }, reject);
+    }
+
+    createMultipartUpload(region: string, object: Object, _header?: SetObjectHeader): Promise<InitPartsOutput> {
+        return new Promise((resolve, reject) => {
+            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Up,
+                path: path,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/x-www-form-urlencoded',
+                headers: { 'authorization': `UpToken ${token}` },
+            }).then((response) => {
+                resolve({ uploadId: response.data.uploadId });
+            }, reject);
+        });
+    }
+
+    uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
+               data: Buffer, _progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput> {
+        return new Promise((resolve, reject) => {
+            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
+            this.client.call({
+                method: 'PUT',
+                serviceName: ServiceName.Up,
+                path: path,
+                data: data,
+                dataType: 'json',
+                regionId: region,
+                contentType: 'application/octet-stream',
+                headers: {
+                    'authorization': `UpToken ${token}`,
+                    'content-md5': md5.hex(data),
+                },
+            }).then((response) => {
+                resolve({ etag: response.data.etag });
+            }, reject);
+        });
+    }
+
+    completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, header?: SetObjectHeader): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
+            const metadata: { [metaKey: string]: string; } = {};
+            if (header?.metadata) {
+                for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
+                    metadata[`x-qn-meta-${metaKey}`] = metaValue;
+                }
+            }
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Up,
+                path: path,
+                data: JSON.stringify({ parts: parts, metadata: metadata }),
+                dataType: 'json',
+                regionId: region,
+                headers: { 'authorization': `UpToken ${token}` },
+            }).then(() => { resolve(); }, reject);
+        });
     }
 }
 

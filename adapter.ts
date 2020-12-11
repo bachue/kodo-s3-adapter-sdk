@@ -1,6 +1,5 @@
 import { Region } from './region';
 import { URL } from 'url';
-// import { FileHandle } from 'fs/promises';
 
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
@@ -24,7 +23,11 @@ export abstract class Adapter {
     abstract getObject(region: string, object: Object, domain?: Domain): Promise<ObjectGetResult>;
     abstract getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL>;
     abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
-    // abstract putObjectFromFile(region: string, object: Object, file: FileHandle, putCallback?: PutCallback): Promise<void>;
+
+    abstract createMultipartUpload(region: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput>;
+    abstract uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
+                       data: Buffer, progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput>;
+    abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, header?: SetObjectHeader): Promise<void>;
 
     abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
 }
@@ -120,7 +123,15 @@ export interface ObjectInfo extends Object {
     storageClass: StorageClass;
 }
 
-export interface PutCallback {
-    progressCallback?: (uploaded: number, total: number) => void;
-    partPutCallback?: (partNumber: number) => void;
+export interface InitPartsOutput {
+    uploadId: string
+}
+
+export interface UploadPartOutput {
+    etag: string
+}
+
+export interface Part {
+    partNumber: number;
+    etag: string;
 }

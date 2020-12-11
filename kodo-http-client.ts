@@ -30,6 +30,7 @@ export interface RequestOptions {
     dataType?: string;
     form?: FormData;
     contentType?: string;
+    headers?: { [headerName: string]: string; },
 }
 
 export class KodoHttpClient {
@@ -62,6 +63,11 @@ export class KodoHttpClient {
         };
         if (options.contentType !== 'json') {
             headers['content-type'] = options.contentType;
+        }
+        if (options.headers) {
+            for (const [headerName, headerValue] of Object.entries(options.headers)) {
+                headers[headerName] = headerValue;
+            }
         }
 
         KodoHttpClient.httpClient.request(url, {

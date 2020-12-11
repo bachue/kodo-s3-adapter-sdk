@@ -9,101 +9,12 @@ import { Kodo } from '../kodo';
 
 [KODO_MODE, S3_MODE].forEach((mode: string) => {
     describe(`${mode} Adapter`, () => {
-        context('bucket', () => {
-            const bucketName = process.env.QINIU_TEST_BUCKET!;
-            const bucketRegionId = process.env.QINIU_TEST_BUCKET_REGION_ID!;
-            const accessKey = process.env.QINIU_ACCESS_KEY!;
-            const secretKey = process.env.QINIU_SECRET_KEY!;
+        const bucketName = process.env.QINIU_TEST_BUCKET!;
+        const bucketRegionId = process.env.QINIU_TEST_BUCKET_REGION_ID!;
+        const accessKey = process.env.QINIU_ACCESS_KEY!;
+        const secretKey = process.env.QINIU_SECRET_KEY!;
 
-            it('creates a bucket and drops it', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey);
-                const qiniuAdapter = qiniu.mode(mode);
-                const bucketName = `test-bucket-${Math.floor(Math.random() * (2**64 -1))}`;
-                await qiniuAdapter.createBucket(bucketRegionId, bucketName);
-                const regionId = await qiniuAdapter.getBucketLocation(bucketName);
-                expect(regionId).to.equal(bucketRegionId);
-
-                await qiniuAdapter.deleteBucket(bucketRegionId, bucketName);
-                try {
-                    await qiniuAdapter.getBucketLocation(bucketName)
-                    assert.fail();
-                } catch {
-                }
-            });
-
-            it('lists all buckets', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey);
-                const qiniuAdapter = qiniu.mode(mode);
-
-                const buckets = await qiniuAdapter.listBuckets();
-
-                const bucket = buckets.find((bucket) => bucket.name === bucketName);
-                expect(bucket?.regionId).to.equal(bucketRegionId);
-            });
-
-            it('uploads file', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey);
-                const qiniuAdapter = qiniu.mode(mode);
-
-                const buffer = randomBytes(1 << 12);
-                const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
-                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
-
-                let isExisted: boolean = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
-                expect(isExisted).to.equal(true);
-
-                {
-                    const url = await qiniuAdapter.getObjectURL(bucketRegionId, { bucket: bucketName, key: key }, undefined, new Date(Date.now() + 86400000));
-                    expect(url.toString().includes(key)).to.equal(true);
-                    const response = await urllib.request(url.toString(), { method: 'GET', streaming: true });
-                    expect(response.status).to.equal(200);
-                    if (mode == KODO_MODE) {
-                        expect(response.headers['x-qn-meta-key-a']).to.equal('Value-A');
-                        expect(response.headers['x-qn-meta-key-b']).to.equal('Value-B');
-                    } else if (mode == S3_MODE) {
-                        expect(response.headers['x-amz-meta-key-a']).to.equal('Value-A');
-                        expect(response.headers['x-amz-meta-key-b']).to.equal('Value-B');
-                    }
-                    response.res.destroy();
-                }
-
-                {
-                    const result = await qiniuAdapter.getObject(bucketRegionId, { bucket: bucketName, key: key });
-                    expect(result.data).to.eql(buffer);
-                    expect(result.header.size).to.equal(1 << 12);
-                    expect(result.header.metadata['key-a']).to.equal('Value-A');
-                    expect(result.header.metadata['key-b']).to.equal('Value-B');
-                    expect(result.header.metadata).to.have.all.keys('key-a', 'key-b');
-                }
-
-                {
-                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
-                    expect(header.size).to.equal(1 << 12);
-                    expect(header.metadata['key-a']).to.equal('Value-A');
-                    expect(header.metadata['key-b']).to.equal('Value-B');
-                    expect(header.metadata).to.have.all.keys('key-a', 'key-b');
-                }
-
-                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
-
-                isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
-                expect(isExisted).to.equal(false);
-            });
-
-            it('lists domain', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey);
-                const qiniuAdapter = qiniu.mode(mode);
-
-                const domains = await qiniuAdapter.listDomains(bucketRegionId, bucketName);
-                if (mode === KODO_MODE) {
-                    expect(domains).to.have.lengthOf(1);
-                    expect(domains[0].protocol).to.equal('http');
-                    expect(domains[0].private).to.equal(true);
-                } else {
-                    expect(domains).to.be.empty;
-                }
-            });
-
+        context('files operation', () => {
             it('moves and copies file', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
@@ -325,6 +236,126 @@ import { Kodo } from '../kodo';
                 listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, `${keys[0]}1/1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
                 expect(listedFiles.objects).to.have.lengthOf(11);
                 expect(listedFiles.commonPrefixes).to.be.undefined;
+            });
+        });
+
+        context('files upload / download', () => {
+            it('uploads and gets file', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes(1 << 12);
+                const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+
+                let isExisted: boolean = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                expect(isExisted).to.equal(true);
+
+                {
+                    const url = await qiniuAdapter.getObjectURL(bucketRegionId, { bucket: bucketName, key: key }, undefined, new Date(Date.now() + 86400000));
+                    expect(url.toString().includes(key)).to.equal(true);
+                    const response = await urllib.request(url.toString(), { method: 'GET', streaming: true });
+                    expect(response.status).to.equal(200);
+                    if (mode == KODO_MODE) {
+                        expect(response.headers['x-qn-meta-key-a']).to.equal('Value-A');
+                        expect(response.headers['x-qn-meta-key-b']).to.equal('Value-B');
+                    } else if (mode == S3_MODE) {
+                        expect(response.headers['x-amz-meta-key-a']).to.equal('Value-A');
+                        expect(response.headers['x-amz-meta-key-b']).to.equal('Value-B');
+                    }
+                    response.res.destroy();
+                }
+
+                {
+                    const result = await qiniuAdapter.getObject(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(result.data).to.eql(buffer);
+                    expect(result.header.size).to.equal(1 << 12);
+                    expect(result.header.metadata['key-a']).to.equal('Value-A');
+                    expect(result.header.metadata['key-b']).to.equal('Value-B');
+                    expect(result.header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
+
+                {
+                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(header.size).to.equal(1 << 12);
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+                    expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                }
+
+                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+
+                isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                expect(isExisted).to.equal(false);
+            });
+
+            it('upload data by chunk', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey, 'http://uc.qbox.me');
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
+
+                const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key },
+                                                { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+
+                const buffer_1 = randomBytes(1 << 20);
+                const uploadPartResult_1 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
+                                                createResult.uploadId, 1, buffer_1);
+
+                const buffer_2 = randomBytes(1 << 20);
+                const uploadPartResult_2 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
+                                                createResult.uploadId, 2, buffer_2);
+
+                await qiniuAdapter.completeMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, createResult.uploadId,
+                    [{ partNumber: 1, etag: uploadPartResult_1.etag }, { partNumber: 2, etag: uploadPartResult_2.etag }],
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+
+                const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                expect(isExisted).to.equal(true);
+
+                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+            });
+        });
+
+        context('bucket', () => {
+            it('creates a bucket and drops it', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const bucketName = `test-bucket-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.createBucket(bucketRegionId, bucketName);
+                const regionId = await qiniuAdapter.getBucketLocation(bucketName);
+                expect(regionId).to.equal(bucketRegionId);
+
+                await qiniuAdapter.deleteBucket(bucketRegionId, bucketName);
+                try {
+                    await qiniuAdapter.getBucketLocation(bucketName)
+                    assert.fail();
+                } catch {
+                }
+            });
+
+            it('lists all buckets', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buckets = await qiniuAdapter.listBuckets();
+
+                const bucket = buckets.find((bucket) => bucket.name === bucketName);
+                expect(bucket?.regionId).to.equal(bucketRegionId);
+            });
+
+            it('lists domain', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const domains = await qiniuAdapter.listDomains(bucketRegionId, bucketName);
+                if (mode === KODO_MODE) {
+                    expect(domains).to.have.lengthOf(1);
+                    expect(domains[0].protocol).to.equal('http');
+                    expect(domains[0].private).to.equal(true);
+                } else {
+                    expect(domains).to.be.empty;
+                }
             });
         });
     });

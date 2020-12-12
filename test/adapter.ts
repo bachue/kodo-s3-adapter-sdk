@@ -246,7 +246,15 @@ import { Kodo } from '../kodo';
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
-                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+                let loaded = 0;
+                await qiniuAdapter.putObject(
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer,
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                    (uploaded: number, total: number) => {
+                        expect(total).to.at.least(buffer.length);
+                        loaded = uploaded;
+                    });
+                expect(loaded).to.at.least(buffer.length);
 
                 let isExisted: boolean = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
                 expect(isExisted).to.equal(true);
@@ -299,12 +307,22 @@ import { Kodo } from '../kodo';
                                                 { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
 
                 const buffer_1 = randomBytes(1 << 20);
+                let loaded = 0;
                 const uploadPartResult_1 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
-                                                createResult.uploadId, 1, buffer_1);
+                                                createResult.uploadId, 1, buffer_1, (uploaded: number, total: number) => {
+                                                    expect(total).to.equal(buffer_1.length);
+                                                    loaded = uploaded;
+                                                });
+                expect(loaded).to.equal(buffer_1.length);
 
                 const buffer_2 = randomBytes(1 << 20);
+                loaded = 0;
                 const uploadPartResult_2 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
-                                                createResult.uploadId, 2, buffer_2);
+                                                createResult.uploadId, 2, buffer_2, (uploaded: number, total: number) => {
+                                                    expect(total).to.equal(buffer_2.length);
+                                                    loaded = uploaded;
+                                                });
+                expect(loaded).to.equal(buffer_2.length);
 
                 await qiniuAdapter.completeMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, createResult.uploadId,
                     [{ partNumber: 1, etag: uploadPartResult_1.etag }, { partNumber: 2, etag: uploadPartResult_2.etag }],

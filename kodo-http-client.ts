@@ -1,10 +1,11 @@
 import AsyncLock from 'async-lock';
 import http from 'http';
 import FormData from 'form-data';
-import { HttpClient2, HttpClientResponse, HttpMethod } from 'urllib';
+import { HttpClient2, RequestOptions2, HttpClientResponse, HttpMethod } from 'urllib';
 import { URL, URLSearchParams } from 'url';
 import { Region } from './region';
 import { generateAccessTokenV2 } from './kodo-auth';
+import { ReadableStreamBuffer } from 'stream-buffers';
 
 export type HttpProtocol = "http" | "https";
 
@@ -31,6 +32,7 @@ export interface RequestOptions {
     form?: FormData;
     contentType?: string;
     headers?: { [headerName: string]: string; },
+    uploadProgress?: (uploaded: number, total: number) => void,
 }
 
 export class KodoHttpClient {
@@ -70,9 +72,8 @@ export class KodoHttpClient {
             }
         }
 
-        KodoHttpClient.httpClient.request(url, {
+        const requestOption: RequestOptions2 = {
             method: options.method,
-            data: options.data ?? options.form?.getBuffer(),
             dataType: options.dataType,
             contentType: options.contentType,
             headers: headers,
@@ -81,7 +82,26 @@ export class KodoHttpClient {
             retry: this.sharedOptions.retry,
             retryDelay: this.sharedOptions.retryDelay,
             isRetry: this.isRetry,
-        }).then((response) => {
+        };
+        const data: any = options.data ?? options.form?.getBuffer();
+        if (data) {
+            if (options.uploadProgress) {
+                const stream = new ReadableStreamBuffer({ initialSize: data.length });
+                stream.put(data);
+                stream.stop();
+                let uploaded = 0;
+                let total = data.length;
+                stream.on('data', (chunk) => {
+                    uploaded += chunk.length;
+                    options.uploadProgress!(uploaded, total);
+                });
+                requestOption.stream = stream;
+            } else {
+                requestOption.data = data;
+            }
+        }
+
+        KodoHttpClient.httpClient.request(url, requestOption).then((response) => {
             if (response.status >= 200 && response.status < 400) {
                 resolve(response);
             } else if (urls.length > 0) {

@@ -22,17 +22,18 @@ export abstract class Adapter {
     abstract getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader>;
     abstract getObject(region: string, object: Object, domain?: Domain): Promise<ObjectGetResult>;
     abstract getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL>;
-    abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void>;
+    abstract putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void>;
 
     abstract createMultipartUpload(region: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput>;
     abstract uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
-                       data: Buffer, progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput>;
+                       data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, header?: SetObjectHeader): Promise<void>;
 
     abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
 }
 
 export type BatchCallback = (index: number, error?: Error) => void;
+export type ProgressCallback = (uploaded: number, total: number) => void;
 
 export interface ListFilesOption {
      delimiter?: string;

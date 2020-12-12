@@ -11,7 +11,7 @@ import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListFilesOption, ListedFiles,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part } from './adapter';
+         InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -217,7 +217,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
+    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const form =  new FormData();
@@ -237,6 +237,7 @@ export class Kodo implements Adapter {
                 regionId: region,
                 contentType: form.getHeaders()['content-type'],
                 form: form,
+                uploadProgress: progressCallback,
             }).then(() => { resolve(); }, reject);
         });
     }
@@ -631,8 +632,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
-               data: Buffer, _progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput> {
+    uploadPart(region: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
@@ -648,6 +648,7 @@ export class Kodo implements Adapter {
                     'authorization': `UpToken ${token}`,
                     'content-md5': md5.hex(data),
                 },
+                uploadProgress: progressCallback,
             }).then((response) => {
                 resolve({ etag: response.data.etag });
             }, reject);

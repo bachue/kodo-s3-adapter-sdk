@@ -7,9 +7,10 @@ import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
 import { Kodo } from './kodo';
+import { ReadableStreamBuffer } from 'stream-buffers';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles, ListFilesOption,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part } from './adapter';
+         InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -363,16 +364,26 @@ export class S3 implements Adapter {
         });
     }
 
-    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader): Promise<void> {
+    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                reader.put(data);
+                reader.stop();
                 const params: AWS.S3.Types.PutObjectRequest = {
                     Bucket: bucketId,
                     Key: object.key,
-                    Body: data,
+                    Body: reader,
+                    ContentLength: data.length,
                     Metadata: header?.metadata,
                 };
-                s3.putObject(params, (err) => {
+                const uploader = s3.putObject(params);
+                if (progressCallback) {
+                    uploader.on('httpUploadProgress', (progress) => {
+                        progressCallback!(progress.loaded, progress.total);
+                    });
+                }
+                uploader.send((err) => {
                     if (err) {
                         reject(err);
                     } else {
@@ -665,15 +676,20 @@ export class S3 implements Adapter {
         });
     }
 
-    uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
-               data: Buffer, _progressCallback?: (uploaded: number, total: number) => void): Promise<UploadPartOutput> {
+    uploadPart(region: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.UploadPartRequest = {
-                    Bucket: bucketId, Key: object.key, Body: data, ContentMD5: md5.hex(data),
-                    PartNumber: partNumber, UploadId: uploadId,
+                    Bucket: bucketId, Key: object.key, Body: data, ContentLength: data.length,
+                    ContentMD5: md5.hex(data), PartNumber: partNumber, UploadId: uploadId,
                 };
-                s3.uploadPart(params, (err, data) => {
+                const uploader = s3.uploadPart(params);
+                if (progressCallback) {
+                    uploader.on('httpUploadProgress', (progress) => {
+                        progressCallback!(progress.loaded, progress.total);
+                    });
+                }
+                uploader.send((err, data) => {
                     if (err) {
                         reject(err);
                     } else {

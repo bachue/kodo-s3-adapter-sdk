@@ -56,6 +56,12 @@
   version "14.14.7"
   resolved "https://registry.npm.taobao.org/@types/node/download/@types/node-14.14.7.tgz?cache=0&sync_timestamp=1604951079891&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2F%40types%2Fnode%2Fdownload%2F%40types%2Fnode-14.14.7.tgz#8ea1e8f8eae2430cf440564b98c6dfce1ec5945d"
 
+"@types/stream-buffers@^3.0.3":
+  version "3.0.3"
+  resolved "https://registry.npm.taobao.org/@types/stream-buffers/download/@types/stream-buffers-3.0.3.tgz?cache=0&sync_timestamp=1605057241977&other_urls=https%3A%2F%2Fregistry.npm.taobao.org%2F%40types%2Fstream-buffers%2Fdownload%2F%40types%2Fstream-buffers-3.0.3.tgz#34e565bf64e3e4bdeee23fd4aa58d4636014a02b"
+  dependencies:
+    "@types/node" "*"
+
 "@ungap/promise-all-settled@1.1.2":
   version "1.1.2"
   resolved "https://registry.npm.taobao.org/@ungap/promise-all-settled/download/@ungap/promise-all-settled-1.1.2.tgz#aa58042711d6e3275dd37dc597e5d31e8c290a44"
@@ -1149,6 +1155,10 @@ sprintf-js@~1.0.2:
 "statuses@>= 1.5.0 < 2", statuses@^1.3.1:
   version "1.5.0"
   resolved "https://registry.npm.taobao.org/statuses/download/statuses-1.5.0.tgz#161c7dac177659fd9811f43771fa99381478628c"
+
+stream-buffers@^3.0.2:
+  version "3.0.2"
+  resolved "https://registry.npm.taobao.org/stream-buffers/download/stream-buffers-3.0.2.tgz#5249005a8d5c2d00b3a32e6e0a6ea209dc4f3521"
 
 "string-width@^1.0.2 || 2":
   version "2.1.1"

@@ -10,6 +10,15 @@ import { TransferObject, FrozenStatus } from '../adapter';
 import { Uploader } from '../uploader';
 import { Kodo } from '../kodo';
 
+process.on('uncaughtException', (err: any, origin: any) => {
+    fs.writeSync(
+        process.stderr.fd,
+        `Caught exception: ${err}\n` +
+        `Exception origin: ${origin}`
+    );
+    assert.fail();
+});
+
 [KODO_MODE, S3_MODE].forEach((mode: string) => {
     describe(`${mode} Adapter`, () => {
         const bucketName = process.env.QINIU_TEST_BUCKET!;

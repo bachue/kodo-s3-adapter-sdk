@@ -1,6 +1,16 @@
 import process from 'process';
-import { expect } from 'chai';
+import fs from 'fs';
+import { expect, assert } from 'chai';
 import { Region } from '../region';
+
+process.on('uncaughtException', (err: any, origin: any) => {
+    fs.writeSync(
+        process.stderr.fd,
+        `Caught exception: ${err}\n` +
+        `Exception origin: ${origin}`
+    );
+    assert.fail();
+});
 
 describe('Region', () => {
     context('Region query', () => {

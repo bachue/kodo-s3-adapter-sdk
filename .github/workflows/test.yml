@@ -15,3 +15,4 @@ jobs:
         QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
         QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
         QINIU_TEST_BUCKET: ${{ secrets.QINIU_TEST_BUCKET }}
+        QINIU_TEST_BUCKET_REGION_ID: ${{ secrets.QINIU_TEST_BUCKET_REGION_ID }}

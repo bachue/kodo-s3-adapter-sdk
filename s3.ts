@@ -679,8 +679,11 @@ export class S3 implements Adapter {
     uploadPart(region: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                reader.put(data);
+                reader.stop();
                 const params: AWS.S3.Types.UploadPartRequest = {
-                    Bucket: bucketId, Key: object.key, Body: data, ContentLength: data.length,
+                    Bucket: bucketId, Key: object.key, Body: reader, ContentLength: data.length,
                     ContentMD5: md5.hex(data), PartNumber: partNumber, UploadId: uploadId,
                 };
                 const uploader = s3.uploadPart(params);

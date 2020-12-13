@@ -1,10 +1,13 @@
 import process from 'process';
 import urllib from 'urllib';
+import tempfile from 'tempfile';
+import fs from 'fs';
 import { Semaphore } from 'semaphore-promise';
 import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject, FrozenStatus } from '../adapter';
+import { Uploader } from '../uploader';
 import { Kodo } from '../kodo';
 
 [KODO_MODE, S3_MODE].forEach((mode: string) => {
@@ -298,7 +301,7 @@ import { Kodo } from '../kodo';
             });
 
             it('upload data by chunk', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
@@ -328,10 +331,146 @@ import { Kodo } from '../kodo';
                     [{ partNumber: 1, etag: uploadPartResult_1.etag }, { partNumber: 2, etag: uploadPartResult_2.etag }],
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
 
-                const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
-                expect(isExisted).to.equal(true);
+                const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                expect(header.metadata['key-a']).to.equal('Value-A');
+                expect(header.metadata['key-b']).to.equal('Value-B');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+            });
+
+            it('upload file by uploader', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `11m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const tmpfilePath = tempfile();
+
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
+                try {
+                    await tmpfile.write(randomBytes((1 << 20) * 11));
+                    const uploader = new Uploader(qiniuAdapter);
+                    let fileUploaded = 0;
+                    const filePartUploaded = new Set<number>();
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                                                {
+                                                    header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                                                    putCallback: {
+                                                        progressCallback: (uploaded, total) => {
+                                                            expect(total).to.equal((1 << 20) * 11);
+                                                            fileUploaded = uploaded;
+                                                        },
+                                                        partPutCallback: (part) => {
+                                                            filePartUploaded.add(part.partNumber);
+                                                        },
+                                                    },
+                                                });
+                    expect(fileUploaded).to.equal((1 << 20) * 11);
+                    expect(filePartUploaded).to.have.lengthOf(3);
+
+                    const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(isExisted).to.equal(true);
+
+                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                } finally {
+                    await tmpfile.close();
+                }
+            });
+
+            it('recover file by uploader', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `11m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const tmpfilePath = tempfile();
+
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
+                try {
+                    await tmpfile.write(randomBytes((1 << 20) * 11));
+
+                    const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key },
+                                                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+
+                    const { buffer: buffer_1 } = await tmpfile.read(Buffer.alloc(1 << 22), 0, 1 << 22, 1 << 22);
+                    const uploadPartResult_1 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
+                                                    createResult.uploadId, 2, buffer_1);
+
+                    const { buffer: buffer_2 } = await tmpfile.read(Buffer.alloc((1 << 20) * 3), 0, (1 << 20) * 3, (1 << 22) * 2);
+                    const uploadPartResult_2 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
+                                                    createResult.uploadId, 3, buffer_2);
+
+
+                    const uploader = new Uploader(qiniuAdapter);
+                    let fileUploaded = 0;
+                    const filePartUploaded = new Set<number>();
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                                                {
+                                                    header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                                                    recovered: {
+                                                        uploadId: createResult.uploadId,
+                                                        parts: [
+                                                            { partNumber: 2, etag: uploadPartResult_1.etag },
+                                                            { partNumber: 3, etag: uploadPartResult_2.etag },
+                                                        ],
+                                                    },
+                                                    putCallback: {
+                                                        progressCallback: (uploaded, total) => {
+                                                            expect(total).to.equal((1 << 20) * 11);
+                                                            fileUploaded = uploaded;
+                                                        },
+                                                        partPutCallback: (part) => {
+                                                            filePartUploaded.add(part.partNumber);
+                                                        },
+                                                    },
+                                                });
+                    expect(fileUploaded).to.equal((1 << 20) * 11);
+                    expect(filePartUploaded).to.have.lengthOf(1);
+
+                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                } finally {
+                    await tmpfile.close();
+                }
+            });
+
+            it('upload small file by uploader', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `11k-${Math.floor(Math.random() * (2**64 -1))}`;
+                const tmpfilePath = tempfile();
+
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
+                try {
+                    await tmpfile.write(randomBytes((1 << 10) * 11));
+                    const uploader = new Uploader(qiniuAdapter);
+                    let fileUploaded = 0;
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                                                {
+                                                    header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                                                    putCallback: {
+                                                        progressCallback: (uploaded, total) => {
+                                                            expect(total).to.at.least((1 << 10) * 11);
+                                                            fileUploaded = uploaded;
+                                                        },
+                                                    },
+                                                });
+                    expect(fileUploaded).to.at.least((1 << 10) * 11);
+
+                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(header.metadata['key-a']).to.equal('Value-A');
+                    expect(header.metadata['key-b']).to.equal('Value-B');
+
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                } finally {
+                    await tmpfile.close();
+                }
             });
         });
 

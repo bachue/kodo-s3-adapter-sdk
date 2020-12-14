@@ -2,7 +2,7 @@ import { Adapter, SetObjectHeader, Part, ProgressCallback, Object } from './adap
 import { FileHandle } from 'fs/promises';
 
 export class Uploader {
-    constructor(private adapter: Adapter) {
+    constructor(private readonly adapter: Adapter) {
     }
 
     putObjectFromFile(region: string, object: Object, file: FileHandle, putFileOption?: PutFileOption): Promise<void> {

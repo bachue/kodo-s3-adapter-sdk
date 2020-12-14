@@ -3,6 +3,7 @@ import AWS from 'aws-sdk';
 import os from 'os';
 import pkg from './package.json';
 import md5 from 'js-md5';
+import { Readable } from 'stream';
 import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
 import { Region } from './region';
@@ -367,13 +368,19 @@ export class S3 implements Adapter {
     putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                const reader = new ReadableStreamBuffer({ initialSize: data.length });
-                reader.put(data);
-                reader.stop();
+                let dataSource: Readable | Buffer;
+                if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                    reader.put(data);
+                    reader.stop();
+                    dataSource = reader;
+                } else {
+                    dataSource = data;
+                }
                 const params: AWS.S3.Types.PutObjectRequest = {
                     Bucket: bucketId,
                     Key: object.key,
-                    Body: reader,
+                    Body: dataSource,
                     ContentLength: data.length,
                     Metadata: header?.metadata,
                 };
@@ -679,11 +686,17 @@ export class S3 implements Adapter {
     uploadPart(region: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                const reader = new ReadableStreamBuffer({ initialSize: data.length });
-                reader.put(data);
-                reader.stop();
+                let dataSource: Readable | Buffer;
+                if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                    reader.put(data);
+                    reader.stop();
+                    dataSource = reader;
+                } else {
+                    dataSource = data;
+                }
                 const params: AWS.S3.Types.UploadPartRequest = {
-                    Bucket: bucketId, Key: object.key, Body: reader, ContentLength: data.length,
+                    Bucket: bucketId, Key: object.key, Body: dataSource, ContentLength: data.length,
                     ContentMD5: md5.hex(data), PartNumber: partNumber, UploadId: uploadId,
                 };
                 const uploader = s3.uploadPart(params);

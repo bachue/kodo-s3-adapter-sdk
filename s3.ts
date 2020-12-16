@@ -459,19 +459,35 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             Promise.all([
                 this.getClient(region),
+                this.getObjectStorageClass(region, transferObject.from),
                 this.fromKodoBucketNameToS3BucketId(transferObject.from.bucket),
                 this.fromKodoBucketNameToS3BucketId(transferObject.to.bucket),
-            ]).then(([s3, fromBucketId, toBucketId]) => {
+            ]).then(([s3, storageClass, fromBucketId, toBucketId]) => {
                 const params: AWS.S3.Types.CopyObjectRequest = {
                     Bucket: toBucketId, Key: transferObject.to.key,
                     CopySource: `${fromBucketId}/${transferObject.from.key}`,
                     MetadataDirective: 'COPY',
+                    StorageClass: storageClass,
                 };
                 s3.copyObject(params, (err) => {
                     if (err) {
                         reject(err);
                     } else {
                         resolve();
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    private getObjectStorageClass(region: string, object: Object): Promise<string | undefined> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(data.StorageClass);
                     }
                 });
             }, reject);

@@ -516,7 +516,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const domains = await qiniuAdapter.listDomains(bucketRegionId, bucketName);
                 if (mode === KODO_MODE) {
-                    expect(domains).to.at.least(1);
+                    expect(domains).to.have.lengthOf.at.least(1);
                 } else {
                     expect(domains).to.be.empty;
                 }

@@ -10,7 +10,7 @@ import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListFilesOption, ListedFiles,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListObjectsOption, ListedObjects,
          InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
@@ -543,14 +543,14 @@ export class Kodo implements Adapter {
         });
     }
 
-    listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles> {
+    listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
         return new Promise((resolve, reject) => {
-            const results: ListedFiles = { objects: [] };
-            this._listFiles(region, bucket, prefix, resolve, reject, results, option);
+            const results: ListedObjects = { objects: [] };
+            this._listObjects(region, bucket, prefix, resolve, reject, results, option);
         });
     }
 
-    private _listFiles(region: string, bucket: string, prefix: string, resolve: any, reject: any, results: ListedFiles, option?: ListFilesOption): void {
+    private _listObjects(region: string, bucket: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
         const query = new URLSearchParams();
         query.set('bucket', bucket);
         query.set('prefix', prefix);
@@ -563,7 +563,7 @@ export class Kodo implements Adapter {
         if (option?.delimiter) {
             query.set('delimiter', option.delimiter);
         }
-        const newOption: ListFilesOption = {
+        const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,
         };
 
@@ -605,7 +605,7 @@ export class Kodo implements Adapter {
                     if (resultsSize < option.minKeys) {
                         newOption.minKeys = option.minKeys;
                         newOption.maxKeys = option.minKeys - resultsSize;
-                        this._listFiles(region, bucket, prefix, resolve, reject, results, newOption);
+                        this._listObjects(region, bucket, prefix, resolve, reject, results, newOption);
                         return;
                     }
                 }

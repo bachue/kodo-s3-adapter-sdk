@@ -10,7 +10,7 @@ import { Region } from './region';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedFiles, ListFilesOption,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedObjects, ListObjectsOption,
          InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
@@ -626,20 +626,20 @@ export class S3 implements Adapter {
         });
     }
 
-    listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles> {
+    listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
-                const results: ListedFiles = { objects: [] };
-                this._listFiles(region, s3, bucket, bucketId, prefix, resolve, reject, results, option);
+                const results: ListedObjects = { objects: [] };
+                this._listObjects(region, s3, bucket, bucketId, prefix, resolve, reject, results, option);
             }, reject);
         });
     }
 
-    private _listFiles(region: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedFiles, option?: ListFilesOption): void {
+    private _listObjects(region: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
         const params: AWS.S3.Types.ListObjectsRequest = {
             Bucket: bucketId, Delimiter: option?.delimiter, Marker: option?.nextContinuationToken, MaxKeys: option?.maxKeys, Prefix: prefix,
         };
-        const newOption: ListFilesOption = {
+        const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,
         };
         s3.listObjects(params, (err, data) => {
@@ -675,7 +675,7 @@ export class S3 implements Adapter {
                         if (resultsSize < option.minKeys) {
                             newOption.minKeys = option.minKeys;
                             newOption.maxKeys = option.minKeys - resultsSize;
-                            this._listFiles(region, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
+                            this._listObjects(region, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
                             return;
                         }
                     }

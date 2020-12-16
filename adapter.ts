@@ -29,20 +29,20 @@ export abstract class Adapter {
                        data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, header?: SetObjectHeader): Promise<void>;
 
-    abstract listFiles(region: string, bucket: string, prefix: string, option?: ListFilesOption): Promise<ListedFiles>;
+    abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
 }
 
 export type BatchCallback = (index: number, error?: Error) => void;
 export type ProgressCallback = (uploaded: number, total: number) => void;
 
-export interface ListFilesOption {
+export interface ListObjectsOption {
      delimiter?: string;
      minKeys?: number;
      maxKeys?: number;
      nextContinuationToken?: string;
 }
 
-export interface ListedFiles {
+export interface ListedObjects {
     objects: Array<ObjectInfo>;
     commonPrefixes?: Array<Object>;
     nextContinuationToken?: string,

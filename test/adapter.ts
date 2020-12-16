@@ -26,8 +26,8 @@ process.on('uncaughtException', (err: any, origin: any) => {
         const accessKey = process.env.QINIU_ACCESS_KEY!;
         const secretKey = process.env.QINIU_SECRET_KEY!;
 
-        context('files operation', () => {
-            it('moves and copies file', async () => {
+        context('objects operation', () => {
+            it('moves and copies object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -71,7 +71,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 expect(isExisted).to.equal(false);
             });
 
-            it('moves, copies and deletes files', async () => {
+            it('moves, copies and deletes objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
                 const semaphore = new Semaphore(5);
@@ -180,7 +180,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
-            it('unfreeze files', async () => {
+            it('unfreeze objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const kodo = new Kodo({ accessKey: accessKey, secretKey: secretKey, regions: [] });
                 const qiniuAdapter = qiniu.mode(mode);
@@ -203,7 +203,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
 
-            it('list files', async () => {
+            it('list objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
                 const semaphore = new Semaphore(5);
@@ -231,28 +231,28 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 });
                 await Promise.all(uploadPromises);
 
-                let listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 100, maxKeys: 20 });
-                expect(listedFiles.objects).to.have.lengthOf(100);
+                let listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, keys[0], { minKeys: 100, maxKeys: 20 });
+                expect(listedObjects.objects).to.have.lengthOf(100);
 
-                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 110, maxKeys: 20 });
-                expect(listedFiles.objects).to.have.lengthOf(110);
+                listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, keys[0], { minKeys: 110, maxKeys: 20 });
+                expect(listedObjects.objects).to.have.lengthOf(110);
 
-                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, keys[0], { minKeys: 250, maxKeys: 20, delimiter: '/' });
-                expect(listedFiles.objects).to.have.lengthOf(1);
-                expect(listedFiles.commonPrefixes).to.have.lengthOf(10);
+                listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, keys[0], { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedObjects.objects).to.have.lengthOf(1);
+                expect(listedObjects.commonPrefixes).to.have.lengthOf(10);
 
-                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, `${keys[0]}1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
-                expect(listedFiles.objects).to.have.lengthOf(1);
-                expect(listedFiles.commonPrefixes).to.have.lengthOf(10);
+                listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, `${keys[0]}1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedObjects.objects).to.have.lengthOf(1);
+                expect(listedObjects.commonPrefixes).to.have.lengthOf(10);
 
-                listedFiles = await qiniuAdapter.listFiles(bucketRegionId, bucketName, `${keys[0]}1/1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
-                expect(listedFiles.objects).to.have.lengthOf(11);
-                expect(listedFiles.commonPrefixes).to.be.undefined;
+                listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, `${keys[0]}1/1/`, { minKeys: 250, maxKeys: 20, delimiter: '/' });
+                expect(listedObjects.objects).to.have.lengthOf(11);
+                expect(listedObjects.commonPrefixes).to.be.undefined;
             });
         });
 
-        context('files upload / download', () => {
-            it('uploads and gets file', async () => {
+        context('objects upload / download', () => {
+            it('uploads and gets object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -347,7 +347,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
 
-            it('upload file by uploader', async () => {
+            it('upload object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -389,7 +389,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
-            it('recover file by uploader', async () => {
+            it('recover object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -448,7 +448,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
-            it('upload small file by uploader', async () => {
+            it('upload small object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 

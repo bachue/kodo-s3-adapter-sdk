@@ -32,8 +32,8 @@ export abstract class Adapter {
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
 }
 
-export type BatchCallback = (index: number, error?: Error) => void;
-export type ProgressCallback = (uploaded: number, total: number) => void;
+export type BatchCallback = (index: number, error?: Error) => any;
+export type ProgressCallback = (uploaded: number, total: number) => any;
 
 export interface ListObjectsOption {
      delimiter?: string;

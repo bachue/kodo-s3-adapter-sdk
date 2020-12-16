@@ -359,7 +359,7 @@ export class Kodo implements Adapter {
         const promises: Array<Promise<Array<PartialObjectError>>> = transferObjectsBatches.map((batch) => {
             const firstIndexInCurrentBatch = counter;
             counter += batch.length;
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const params = new URLSearchParams();
                 for (const transferObject of batch) {
                     params.append('op', `/${op}/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`);
@@ -374,30 +374,40 @@ export class Kodo implements Adapter {
                         contentType: 'application/x-www-form-urlencoded',
                         data: params.toString(),
                     }).then((response) => {
+                        let aborted = false;
                         const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
                             const result: PartialObjectError = { bucket: batch[index].from.bucket, key: batch[index].from.key };
                             if (item?.data?.error) {
                                 const error = new Error(item?.data?.error);
-                                if (callback) {
-                                    callback(currentIndex, error);
+                                if (callback && callback(currentIndex, error) === false) {
+                                    aborted = true;
                                 }
                                 result.error = error;
-                            } else if (callback) {
-                                callback(currentIndex);
+                            } else if (callback && callback(currentIndex) === false) {
+                                aborted = true;
                             }
                             return result;
                         });
-                        resolve(results);
+                        if (aborted) {
+                            reject(new Error('aborted'));
+                        } else {
+                            resolve(results);
+                        }
                     }, (error) => {
+                        let aborted = false;
                         const results: Array<PartialObjectError> = batch.map((transferObject, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
-                            if (callback) {
-                                callback(currentIndex, error);
+                            if (callback && callback(currentIndex, error) === false) {
+                                aborted = true;
                             }
                             return { bucket: transferObject.from.bucket, key: transferObject.from.key, error: error };
                         });
-                        resolve(results);
+                        if (aborted) {
+                            reject(new Error('aborted'));
+                        } else {
+                            resolve(results);
+                        }
                     }).finally(() => {
                         release();
                     });
@@ -433,7 +443,7 @@ export class Kodo implements Adapter {
         const promises: Array<Promise<Array<PartialObjectError>>> = keysBatches.map((batch) => {
             const firstIndexInCurrentBatch = counter;
             counter += batch.length;
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const params = new URLSearchParams();
                 for (const key of batch) {
                     params.append('op', `/delete/${encodeObject({ bucket: bucket, key: key })}`);
@@ -448,30 +458,40 @@ export class Kodo implements Adapter {
                         contentType: 'application/x-www-form-urlencoded',
                         data: params.toString(),
                     }).then((response) => {
+                        let aborted = false;
                         const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
                             const result: PartialObjectError = { bucket: bucket, key: batch[index] };
                             if (item?.data?.error) {
                                 const error = new Error(item?.data?.error);
-                                if (callback) {
-                                    callback(currentIndex, error);
+                                if (callback && callback(currentIndex, error) === false) {
+                                    aborted = true;
                                 }
                                 result.error = error;
-                            } else if (callback) {
-                                callback(currentIndex);
+                            } else if (callback && callback(currentIndex) === false) {
+                                aborted = true;
                             }
                             return result;
                         });
-                        resolve(results);
+                        if (aborted) {
+                            reject(new Error('aborted'));
+                        } else {
+                            resolve(results);
+                        }
                     }, (error) => {
+                        let aborted = false;
                         const results: Array<PartialObjectError> = batch.map((key, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
-                            if (callback) {
-                                callback(currentIndex, error);
+                            if (callback && callback(currentIndex, error) === false) {
+                                aborted = true;
                             }
                             return { bucket: bucket, key: key, error: error };
                         });
-                        resolve(results);
+                        if (aborted) {
+                            reject(new Error('aborted'));
+                        } else {
+                            resolve(results);
+                        }
                     }).finally(() => {
                         release();
                     });

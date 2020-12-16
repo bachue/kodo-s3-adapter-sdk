@@ -498,17 +498,19 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(5);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
-                return new Promise((resolve) => {
+                return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
                         this.moveObject(region, transferObject).then(() => {
-                            if (callback) {
-                                callback(index);
+                            if (callback && callback(index) === false) {
+                                reject(new Error('aborted'));
+                                return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
                         }, (err) => {
                             const error = new Error(err);
-                            if (callback) {
-                                callback(index, error);
+                            if (callback && callback(index, error) === false) {
+                                reject(new Error('aborted'));
+                                return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
                         }).finally(() => {
@@ -525,17 +527,19 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(5);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
-                return new Promise((resolve) => {
+                return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
                         this.copyObject(region, transferObject).then(() => {
-                            if (callback) {
-                                callback(index);
+                            if (callback && callback(index) === false) {
+                                reject(new Error('aborted'));
+                                return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
                         }, (err) => {
                             const error = new Error(err);
-                            if (callback) {
-                                callback(index, error);
+                            if (callback && callback(index, error) === false) {
+                                reject(new Error('aborted'));
+                                return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
                         }).finally(() => {
@@ -550,28 +554,82 @@ export class S3 implements Adapter {
 
     deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
-            const semaphore = new Semaphore(5);
-            const promises: Array<Promise<PartialObjectError>> = keys.map((key, index) => {
-                return new Promise((resolve) => {
-                    semaphore.acquire().then((release) => {
-                        this.deleteObject(region, { bucket: bucket, key: key }).then(() => {
-                            if (callback) {
-                                callback(index);
-                            }
-                            resolve({ bucket: bucket, key: key });
-                        }, (err) => {
-                            const error = new Error(err);
-                            if (callback) {
-                                callback(index, error);
-                            }
-                            resolve({ bucket: bucket, key: key, error: error });
-                        }).finally(() => {
-                            release();
+            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+                const semaphore = new Semaphore(5);
+                const batchCount = 100;
+                const batches: Array<Array<string>> = [];
+                while (keys.length >= batchCount) {
+                    batches.push(keys.splice(0, batchCount));
+                }
+                if (keys.length > 0) {
+                    batches.push(keys);
+                }
+                let counter = 0;
+                const promises: Array<Promise<Array<PartialObjectError>>> = batches.map((batch) => {
+                    const firstIndexInCurrentBatch = counter;
+                    const partialObjectErrors: Array<PartialObjectError> = new Array(batch.length);
+                    counter += batch.length;
+                    return new Promise((resolve, reject) => {
+                        semaphore.acquire().then((release) => {
+                            s3.deleteObjects({
+                                Bucket: bucketId,
+                                Delete: {
+                                    Objects: batch.map((key) => { return { Key: key }; }),
+                                },
+                            }, (err, results) => {
+                                let aborted = false;
+                                if (err) {
+                                    batch.forEach((key, index) => {
+                                        if (callback && callback(index + firstIndexInCurrentBatch, err) === false) {
+                                            aborted = true;
+                                        }
+                                        partialObjectErrors[index] = { bucket: bucket, key: key, error: err };
+                                    });
+                                } else {
+                                    if (results.Deleted) {
+                                        results.Deleted.forEach((deletedObject) => {
+                                            const index = batch.findIndex((key) => key === deletedObject.Key);
+                                            if (index < 0) {
+                                                throw new Error('s3.deleteObjects deleted key which is not given');
+                                            }
+                                            if (callback && callback(index + firstIndexInCurrentBatch) === false) {
+                                                aborted = true;
+                                            }
+                                            partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key! };
+                                        });
+                                    }
+                                    if (results.Errors) {
+                                        results.Errors.forEach((deletedObject) => {
+                                            const error = new Error(deletedObject.Message);
+                                            const index = batch.findIndex((key) => key === deletedObject.Key);
+                                            if (index < 0) {
+                                                throw new Error('s3.deleteObjects deleted key which is not given');
+                                            }
+                                            if (callback && callback(index + firstIndexInCurrentBatch, error) === false) {
+                                                aborted = true;
+                                            }
+                                            partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key!, error: error };
+                                        });
+                                    }
+                                }
+                                if (aborted) {
+                                    reject(new Error('aborted'));
+                                } else {
+                                    resolve(partialObjectErrors);
+                                }
+                                release();
+                            });
                         });
                     });
                 });
-            });
-            Promise.all(promises).then(resolve, reject);
+                Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
+                    let results: Array<PartialObjectError> = [];
+                    for (const batch of batches) {
+                        results = results.concat(batch);
+                    }
+                    resolve(results);
+                }, reject);
+            }, reject);
         });
     }
 

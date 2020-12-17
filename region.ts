@@ -14,7 +14,7 @@ export class Region {
     rsfUrls: Array<string> = [];
     apiUrls: Array<string> = [];
     s3Urls: Array<string> = [];
-    constructor(readonly id: string, readonly s3Id: string) {
+    constructor(readonly id: string, readonly s3Id: string, readonly label?: string) {
     }
 
     static getAll(options: { accessKey: string, secretKey: string, ucUrl?: string }): Promise<Array<Region>> {
@@ -104,7 +104,7 @@ export class Region {
     }
 
     private static fromResponseBody(ucUrl: string, r: any): Region {
-        const region: Region = new Region(r.region ?? r.id, r.s3.region_alias);
+        const region: Region = new Region(r.region ?? r.id, r.s3.region_alias, r.description);
         const domain2Url = (domain: string) => {
             const url = new URL(ucUrl);
             url.host = domain;

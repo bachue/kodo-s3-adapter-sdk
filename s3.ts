@@ -10,7 +10,7 @@ import { Region } from './region';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListedObjects, ListObjectsOption,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption,
          InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
@@ -613,9 +613,9 @@ export class S3 implements Adapter {
                         if (data.Restore) {
                             const restoreInfo = parseRestoreInfo(data.Restore);
                             if (restoreInfo.get('ongoing-request') === 'true') {
-                                resolve({ status: FrozenStatus.Unfreezing });
+                                resolve({ status: 'Unfreezing' });
                             } else {
-                                const frozenInfo: FrozenInfo = { status: FrozenStatus.Unfrozen };
+                                const frozenInfo: FrozenInfo = { status: 'Unfrozen' };
                                 const expiryDate: string | undefined = restoreInfo.get('expiry-date');
                                 if (expiryDate) {
                                     frozenInfo.expiryDate = new Date(expiryDate);
@@ -623,10 +623,10 @@ export class S3 implements Adapter {
                                 resolve(frozenInfo);
                             }
                         } else {
-                            resolve({ status: FrozenStatus.Frozen });
+                            resolve({ status: 'Frozen' });
                         }
                     } else {
-                        resolve({ status: FrozenStatus.Normal });
+                        resolve({ status: 'Normal' });
                     }
                 });
             }, reject);
@@ -786,11 +786,11 @@ export class S3 implements Adapter {
 function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass {
     const s = (storageClass ?? 'standard').toLowerCase();
     if (s === 'standard') {
-        return StorageClass.Standard;
+        return 'Standard';
     } else if (s.includes('_ia')) {
-        return StorageClass.InfrequentAccess;
+        return 'InfrequentAccess';
     } else if (s === 'glacier') {
-        return StorageClass.Glacier;
+        return 'Glacier';
     }
     throw new Error(`Unknown file type: ${storageClass}`);
 }

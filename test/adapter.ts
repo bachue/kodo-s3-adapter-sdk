@@ -6,7 +6,7 @@ import { Semaphore } from 'semaphore-promise';
 import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
-import { TransferObject, FrozenStatus } from '../adapter';
+import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
 import { Kodo } from '../kodo';
 
@@ -190,15 +190,15 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer);
 
                 let frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(frozenInfo.status).to.equal(FrozenStatus.Normal);
+                expect(frozenInfo.status).to.equal('Normal');
 
                 await kodo.freeze(bucketRegionId, { bucket: bucketName, key: key });
                 frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(frozenInfo.status).to.equal(FrozenStatus.Frozen);
+                expect(frozenInfo.status).to.equal('Frozen');
 
                 await kodo.unfreeze(bucketRegionId, { bucket: bucketName, key: key }, 1);
                 frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(frozenInfo.status).to.equal(FrozenStatus.Unfreezing);
+                expect(frozenInfo.status).to.equal('Unfreezing');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });

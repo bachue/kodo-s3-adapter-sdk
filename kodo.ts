@@ -10,7 +10,7 @@ import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, FrozenStatus, ListObjectsOption, ListedObjects,
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects,
          InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
@@ -536,15 +536,15 @@ export class Kodo implements Adapter {
                 if (response.data.type === 2) {
                     if (response.data.restoreStatus) {
                         if (response.data.restoreStatus === 1) {
-                            resolve({ status: FrozenStatus.Unfreezing });
+                            resolve({ status: 'Unfreezing' });
                         } else {
-                            resolve({ status: FrozenStatus.Unfrozen });
+                            resolve({ status: 'Unfrozen' });
                         }
                     } else {
-                        resolve({ status: FrozenStatus.Frozen });
+                        resolve({ status: 'Frozen' });
                     }
                 } else {
-                    resolve({ status: FrozenStatus.Normal });
+                    resolve({ status: 'Normal' });
                 }
             }, reject);
         });
@@ -701,11 +701,11 @@ export class Kodo implements Adapter {
 function toStorageClass(type?: number): StorageClass {
     switch (type ?? 0) {
     case 0:
-        return StorageClass.Standard;
+        return 'Standard';
     case 1:
-        return StorageClass.InfrequentAccess;
+        return 'InfrequentAccess';
     case 2:
-        return StorageClass.Glacier;
+        return 'Glacier';
     default:
         throw new Error(`Unknown file type: ${type}`);
     }

@@ -75,18 +75,8 @@ export interface FrozenInfo {
     expiryDate?: Date;
 }
 
-export enum StorageClass {
-    Standard,
-    InfrequentAccess,
-    Glacier,
-}
-
-export enum FrozenStatus {
-    Normal,
-    Frozen,
-    Unfreezing,
-    Unfrozen,
-}
+export type StorageClass = 'Standard' | 'InfrequentAccess' | 'Glacier';
+export type FrozenStatus = 'Normal' | 'Frozen' | 'Unfreezing' | 'Unfrozen';
 
 export interface TransferObject {
     from: Object;

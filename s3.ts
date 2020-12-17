@@ -75,7 +75,31 @@ export class S3 implements Adapter {
         });
     }
 
-    private getS3Endpoint(regionId?: string): Promise<S3IdEndpoint> {
+    getAllRegions(): Promise<Array<Region>> {
+        return new Promise((resolve, reject) => {
+            if (this.adapterOption.regions.length > 0) {
+                resolve(this.adapterOption.regions);
+            } else if (this.allRegions && this.allRegions.length > 0) {
+                resolve(this.allRegions);
+            } else {
+                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
+                    if (this.allRegions && this.allRegions.length > 0) {
+                        return new Promise((resolve) => { resolve(this.allRegions); });
+                    }
+                    return Region.getAll({
+                        accessKey: this.adapterOption.accessKey,
+                        secretKey: this.adapterOption.secretKey,
+                        ucUrl: this.adapterOption.ucUrl,
+                    });
+                }).then((regions: Array<Region>) => {
+                    this.allRegions = regions;
+                    resolve(regions);
+                }, reject);
+            }
+        });
+    }
+
+    getS3Endpoint(regionId?: string): Promise<S3IdEndpoint> {
         return new Promise((resolve, reject) => {
             let queryCondition: (region: Region) => boolean;
 
@@ -95,29 +119,11 @@ export class S3 implements Adapter {
                 }
             };
 
-            if (this.adapterOption.regions.length > 0) {
-                queryInRegions(this.adapterOption.regions);
-            } else if (this.allRegions && this.allRegions.length > 0) {
-                queryInRegions(this.allRegions);
-            } else {
-                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
-                    if (this.allRegions && this.allRegions.length > 0) {
-                        return new Promise((resolve) => { resolve(this.allRegions) });
-                    }
-                    return Region.getAll({
-                        accessKey: this.adapterOption.accessKey,
-                        secretKey: this.adapterOption.secretKey,
-                        ucUrl: this.adapterOption.ucUrl,
-                    });
-                }).then((regions: Array<Region>) => {
-                    this.allRegions = regions;
-                    queryInRegions(regions);
-                }, reject);
-            }
+            this.getAllRegions().then(queryInRegions, reject);
         });
     }
 
-    private fromKodoRegionIdToS3Id(regionId: string): Promise<string> {
+    fromKodoRegionIdToS3Id(regionId: string): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.id === regionId;
             const queryInRegions: (regions: Array<Region>) => void = (regions) => {
@@ -129,29 +135,11 @@ export class S3 implements Adapter {
                 }
             };
 
-            if (this.adapterOption.regions.length > 0) {
-                queryInRegions(this.adapterOption.regions);
-            } else if (this.allRegions && this.allRegions.length > 0) {
-                queryInRegions(this.allRegions);
-            } else {
-                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
-                    if (this.allRegions && this.allRegions.length > 0) {
-                        return new Promise((resolve) => { resolve(this.allRegions) });
-                    }
-                    return Region.getAll({
-                        accessKey: this.adapterOption.accessKey,
-                        secretKey: this.adapterOption.secretKey,
-                        ucUrl: this.adapterOption.ucUrl,
-                    });
-                }).then((regions: Array<Region>) => {
-                    this.allRegions = regions;
-                    queryInRegions(regions);
-                }, reject);
-            }
+            this.getAllRegions().then(queryInRegions, reject);
         });
     }
 
-    private fromS3IdToKodoRegionId(s3Id: string): Promise<string> {
+    fromS3IdToKodoRegionId(s3Id: string): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.s3Id === s3Id;
             const queryInRegions: (regions: Array<Region>) => void = (regions) => {
@@ -163,29 +151,11 @@ export class S3 implements Adapter {
                 }
             };
 
-            if (this.adapterOption.regions.length > 0) {
-                queryInRegions(this.adapterOption.regions);
-            } else if (this.allRegions && this.allRegions.length > 0) {
-                queryInRegions(this.allRegions);
-            } else {
-                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
-                    if (this.allRegions && this.allRegions.length > 0) {
-                        return new Promise((resolve) => { resolve(this.allRegions) });
-                    }
-                    return Region.getAll({
-                        accessKey: this.adapterOption.accessKey,
-                        secretKey: this.adapterOption.secretKey,
-                        ucUrl: this.adapterOption.ucUrl,
-                    });
-                }).then((regions: Array<Region>) => {
-                    this.allRegions = regions;
-                    queryInRegions(regions);
-                }, reject);
-            }
+            this.getAllRegions().then(queryInRegions, reject);
         });
     }
 
-    private fromKodoBucketNameToS3BucketId(bucketName: string): Promise<string> {
+    fromKodoBucketNameToS3BucketId(bucketName: string): Promise<string> {
         return new Promise((resolve, reject) => {
             if (this.bucketNameToIdCache[bucketName]) {
                 resolve(this.bucketNameToIdCache[bucketName]);
@@ -215,7 +185,7 @@ export class S3 implements Adapter {
         });
     }
 
-    private fromS3BucketIdToKodoBucketName(bucketId: string): Promise<string> {
+    fromS3BucketIdToKodoBucketName(bucketId: string): Promise<string> {
         return new Promise((resolve, reject) => {
             if (this.bucketIdToNameCache[bucketId]) {
                 resolve(this.bucketIdToNameCache[bucketId]);

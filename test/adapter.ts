@@ -27,6 +27,18 @@ process.on('uncaughtException', (err: any, origin: any) => {
         const secretKey = process.env.QINIU_SECRET_KEY!;
 
         context('objects operation', () => {
+            it('get or getHeaders of unexisted object', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
+
+                try {
+                    await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                    assert.fail();
+                } catch {
+                }
+            });
+
             it('moves and copies object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);

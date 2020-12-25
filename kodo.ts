@@ -253,7 +253,11 @@ export class Kodo implements Adapter {
                     followRedirect: true,
                     gzip: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve({ data: response.data, header: getObjectHeader(response)});
+                    if (response.status === 200) {
+                        resolve({ data: response.data, header: getObjectHeader(response)});
+                    } else {
+                        reject(new Error(response.res.statusMessage));
+                    }
                 }, reject);
             }, reject);
         });
@@ -303,7 +307,11 @@ export class Kodo implements Adapter {
                     retryDelay: 500,
                     followRedirect: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve(getObjectHeader(response));
+                    if (response.status === 200) {
+                        resolve(getObjectHeader(response));
+                    } else {
+                        reject(new Error(response.res.statusMessage));
+                    }
                 }, reject);
             }, reject);
         });

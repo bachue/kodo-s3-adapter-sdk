@@ -1,6 +1,6 @@
 {
   "name": "kodo-s3-adapter-sdk",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Adapter for Kodo & S3 API",
   "main": "dist/index.js",
   "repository": "github.com/bachue/kodo-s3-adapter-sdk",

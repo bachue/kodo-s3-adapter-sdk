@@ -32,7 +32,7 @@ describe('Region', () => {
     context('Region getAll', () => {
         it('get for https urls', async () => {
             const regions = await Region.getAll({ accessKey: process.env.QINIU_ACCESS_KEY!, secretKey: process.env.QINIU_SECRET_KEY! });
-            expect(regions.map((r) => r.id)).to.have.members(['z0', 'z1', 'z2', 'as0', 'na0']);
+            expect(regions.map((r) => r.id)).to.have.members(['z0', 'z1', 'z2', 'as0', 'na0', 'fog-cn-east-1']);
             regions.forEach((r) => {
                 expect(r.label).not.to.be.empty;
             });

@@ -435,7 +435,7 @@ export class S3 implements Adapter {
             ]).then(([s3, storageClass, fromBucketId, toBucketId]) => {
                 const params: AWS.S3.Types.CopyObjectRequest = {
                     Bucket: toBucketId, Key: transferObject.to.key,
-                    CopySource: encodeURI(`${fromBucketId}/${transferObject.from.key}`),
+                    CopySource: `/${fromBucketId}/${encodeURIComponent(transferObject.from.key)}`,
                     MetadataDirective: 'COPY',
                     StorageClass: storageClass,
                 };

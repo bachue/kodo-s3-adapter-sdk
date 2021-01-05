@@ -787,7 +787,7 @@ function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): Storage
     const s = (storageClass ?? 'standard').toLowerCase();
     if (s === 'standard') {
         return 'Standard';
-    } else if (s.includes('_ia')) {
+    } else if (s.includes('_ia') || s === 'line') {
         return 'InfrequentAccess';
     } else if (s === 'glacier') {
         return 'Glacier';

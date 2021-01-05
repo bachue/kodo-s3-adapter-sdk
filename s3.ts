@@ -279,9 +279,24 @@ export class S3 implements Adapter {
                         const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
                             return this.fromS3BucketIdToKodoBucketName(info.Name);
                         });
-                        const bucketLocationPromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
-                            return new Promise((resolve, reject) => {
-                                this._getBucketLocation(s3, info.Name, resolve, reject);
+                        const bucketLocationPromises: Array<Promise<string | undefined>> = data.Buckets!.map((info: any) => {
+                            return new Promise((resolve) => {
+                                s3.getBucketLocation({ Bucket: info.Name }, (err, data) => {
+                                    if (err) {
+                                        resolve(undefined);
+                                    } else {
+                                        const s3Id: string | undefined = data.LocationConstraint;
+                                        if (s3Id) {
+                                            this.fromS3IdToKodoRegionId(s3Id).then((regionId) => {
+                                                resolve(regionId);
+                                            }, () => {
+                                                resolve(undefined);
+                                            });
+                                        } else {
+                                            resolve(undefined);
+                                        }
+                                    }
+                                });
                             });
                         });
                         Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])

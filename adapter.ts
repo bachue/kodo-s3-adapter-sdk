@@ -60,7 +60,7 @@ export interface Bucket {
     id: string;
     name: string;
     createDate: Date;
-    regionId: string;
+    regionId?: string;
 }
 
 export interface Domain {

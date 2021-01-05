@@ -25,7 +25,7 @@ export interface RequestOptions {
     path?: string;
     query?: URLSearchParams;
     bucketName?: string;
-    regionId?: string;
+    s3RegionId?: string;
     serviceName: ServiceName;
     data?: any;
     dataType?: string;
@@ -45,7 +45,7 @@ export class KodoHttpClient {
 
     call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
         return new Promise((resolve, reject) => {
-            this.getServiceUrls(options.serviceName, options.bucketName, options.regionId).then((urls) => {
+            this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId).then((urls) => {
                 this.callForOneUrl(urls, options, resolve, reject);
             }, reject);
         });
@@ -175,11 +175,11 @@ export class KodoHttpClient {
             options.method ?? 'GET', options.contentType, data);
     }
 
-    private getServiceUrls(serviceName: ServiceName, bucketName?: string, regionId?: string): Promise<Array<string>> {
+    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string): Promise<Array<string>> {
         return new Promise((resolve, reject) => {
             let key: string;
-            if (regionId) {
-                key = `${this.sharedOptions.ucUrl}/${regionId}`;
+            if (s3RegionId) {
+                key = `${this.sharedOptions.ucUrl}/${s3RegionId}`;
             } else {
                 key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
             }
@@ -207,10 +207,10 @@ export class KodoHttpClient {
                                 reject(Error('regions is empty'));
                                 return;
                             }
-                            if (regionId) {
-                                const region = regions.find((region) => region.id === regionId);
+                            if (s3RegionId) {
+                                const region = regions.find((region) => region.s3Id === s3RegionId);
                                 if (!region) {
-                                    reject(new Error(`Cannot find region of ${regionId}`));
+                                    reject(new Error(`Cannot find region of ${s3RegionId}`));
                                     return;
                                 }
                                 resolve(region);

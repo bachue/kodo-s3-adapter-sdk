@@ -6,7 +6,7 @@ import md5 from 'js-md5';
 import { Readable } from 'stream';
 import { URL } from 'url';
 import { Semaphore } from 'semaphore-promise';
-import { Region } from './region';
+import { RegionService } from './region_service';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
@@ -15,28 +15,23 @@ import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, Object
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
-interface S3IdEndpoint {
-    s3Id: string,
-    s3Endpoint: string,
-}
-
 export class S3 implements Adapter {
-    private allRegions: Array<Region> | undefined = undefined;
-    private readonly allRegionsLock = new AsyncLock();
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
     private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
     private readonly bucketNameToIdCacheLock = new AsyncLock();
     private readonly clientsLock = new AsyncLock();
     private readonly kodo: Kodo;
+    private readonly regionService: RegionService;
 
     constructor(private readonly adapterOption: AdapterOption) {
         this.kodo = new Kodo(adapterOption);
+        this.regionService = new RegionService(adapterOption);
     }
 
-    private getClient(regionId?: string): Promise<AWS.S3> {
+    private getClient(s3RegionId?: string): Promise<AWS.S3> {
         return new Promise((resolve, reject) => {
-            const cacheKey = regionId ?? '';
+            const cacheKey = s3RegionId ?? '';
             if (this.clients[cacheKey]) {
                 resolve(this.clients[cacheKey]);
                 return;
@@ -47,7 +42,7 @@ export class S3 implements Adapter {
                     if (this.adapterOption.appendedUserAgent) {
                         userAgent += `/${this.adapterOption.appendedUserAgent}`;
                     }
-                    this.getS3Endpoint(regionId).then((s3IdEndpoint) => {
+                    this.regionService.getS3Endpoint(s3RegionId).then((s3IdEndpoint) => {
                         resolve(new AWS.S3({
                             apiVersion: "2006-03-01",
                             customUserAgent: userAgent,
@@ -72,86 +67,6 @@ export class S3 implements Adapter {
                 this.clients[cacheKey] = client;
                 resolve(client);
             }, reject);
-        });
-    }
-
-    getAllRegions(): Promise<Array<Region>> {
-        return new Promise((resolve, reject) => {
-            if (this.adapterOption.regions.length > 0) {
-                resolve(this.adapterOption.regions);
-            } else if (this.allRegions && this.allRegions.length > 0) {
-                resolve(this.allRegions);
-            } else {
-                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
-                    if (this.allRegions && this.allRegions.length > 0) {
-                        return new Promise((resolve) => { resolve(this.allRegions); });
-                    }
-                    return Region.getAll({
-                        accessKey: this.adapterOption.accessKey,
-                        secretKey: this.adapterOption.secretKey,
-                        ucUrl: this.adapterOption.ucUrl,
-                    });
-                }).then((regions: Array<Region>) => {
-                    this.allRegions = regions;
-                    resolve(regions);
-                }, reject);
-            }
-        });
-    }
-
-    getS3Endpoint(regionId?: string): Promise<S3IdEndpoint> {
-        return new Promise((resolve, reject) => {
-            let queryCondition: (region: Region) => boolean;
-
-            if (regionId) {
-                queryCondition = (region) => region.id === regionId && region.s3Urls.length > 0;
-            } else {
-                queryCondition = (region) => !!region.s3Id && region.s3Urls.length > 0;
-            }
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
-                const region: Region | undefined = regions.find(queryCondition);
-                if (region) {
-                    resolve({ s3Id: region.s3Id, s3Endpoint: region.s3Urls[0] });
-                } else if (regionId) {
-                    reject(new Error(`Cannot find region endpoint url of ${regionId}`));
-                } else {
-                    reject(new Error(`Cannot find valid region endpoint url`));
-                }
-            };
-
-            this.getAllRegions().then(queryInRegions, reject);
-        });
-    }
-
-    fromKodoRegionIdToS3Id(regionId: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const queryCondition: (region: Region) => boolean = (region) => region.id === regionId;
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
-                const region: Region | undefined = regions.find(queryCondition);
-                if (region && region.s3Id) {
-                    resolve(region.s3Id);
-                } else {
-                    reject(new Error(`Cannot find region s3 id of ${regionId}`));
-                }
-            };
-
-            this.getAllRegions().then(queryInRegions, reject);
-        });
-    }
-
-    fromS3IdToKodoRegionId(s3Id: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const queryCondition: (region: Region) => boolean = (region) => region.s3Id === s3Id;
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
-                const region: Region | undefined = regions.find(queryCondition);
-                if (region && region.id) {
-                    resolve(region.id);
-                } else {
-                    reject(new Error(`Cannot find region id of ${s3Id}`));
-                }
-            };
-
-            this.getAllRegions().then(queryInRegions, reject);
         });
     }
 
@@ -215,13 +130,13 @@ export class S3 implements Adapter {
         });
     }
 
-    createBucket(region: string, bucket: string): Promise<void> {
+    createBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoRegionIdToS3Id(region)]).then(([s3, s3Id]) => {
+            this.getClient(s3RegionId).then((s3) => {
                 s3.createBucket({
                     Bucket: bucket,
                     CreateBucketConfiguration: {
-                        LocationConstraint: s3Id,
+                        LocationConstraint: s3RegionId,
                     },
                 }, function(err) {
                     if (err) {
@@ -234,9 +149,9 @@ export class S3 implements Adapter {
         });
     }
 
-    deleteBucket(region: string, bucket: string): Promise<void> {
+    deleteBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 s3.deleteBucket({ Bucket: bucketId }, function(err) {
                     if (err) {
                         reject(err);
@@ -261,10 +176,8 @@ export class S3 implements Adapter {
             if (err) {
                 reject(err);
             } else {
-                const s3Id: string = data.LocationConstraint!;
-                this.fromS3IdToKodoRegionId(s3Id).then((regionId) => {
-                    resolve(regionId);
-                }, reject);
+                const s3RegionId: string = data.LocationConstraint!;
+                resolve(s3RegionId);
             }
         });
     }
@@ -285,16 +198,7 @@ export class S3 implements Adapter {
                                     if (err) {
                                         resolve(undefined);
                                     } else {
-                                        const s3Id: string | undefined = data.LocationConstraint;
-                                        if (s3Id) {
-                                            this.fromS3IdToKodoRegionId(s3Id).then((regionId) => {
-                                                resolve(regionId);
-                                            }, () => {
-                                                resolve(undefined);
-                                            });
-                                        } else {
-                                            resolve(undefined);
-                                        }
+                                        resolve(data.LocationConstraint);
                                     }
                                 });
                             });
@@ -316,13 +220,13 @@ export class S3 implements Adapter {
         });
     }
 
-    listDomains(_region: string, _bucket: string): Promise<Array<Domain>> {
+    listDomains(_s3RegionId: string, _bucket: string): Promise<Array<Domain>> {
         return new Promise((resolve) => { resolve([]); });
     }
 
-    isExists(region: string, object: Object): Promise<boolean> {
+    isExists(s3RegionId: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -336,9 +240,9 @@ export class S3 implements Adapter {
         });
     }
 
-    deleteObject(region: string, object: Object): Promise<void> {
+    deleteObject(s3RegionId: string, object: Object): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.deleteObject({ Bucket: bucketId, Key: object.key }, (err) => {
                     if (err) {
                         reject(err);
@@ -350,9 +254,9 @@ export class S3 implements Adapter {
         });
     }
 
-    putObject(region: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
+    putObject(s3RegionId: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
                 if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length });
@@ -386,9 +290,9 @@ export class S3 implements Adapter {
         });
     }
 
-    getObject(region: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
+    getObject(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.getObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -403,9 +307,9 @@ export class S3 implements Adapter {
         });
     }
 
-    getObjectURL(region: string, object: Object, _domain?: Domain, deadline?: Date): Promise<URL> {
+    getObjectURL(s3RegionId: string, object: Object, _domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let expires: number;
                 if (deadline) {
                     expires = ~~((deadline.getTime() - Date.now()) / 1000);
@@ -418,9 +322,9 @@ export class S3 implements Adapter {
         });
     }
 
-    getObjectHeader(region: string, object: Object, _domain?: Domain): Promise<ObjectHeader> {
+    getObjectHeader(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectHeader> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -432,19 +336,19 @@ export class S3 implements Adapter {
         });
     }
 
-    moveObject(region: string, transferObject: TransferObject): Promise<void> {
+    moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.copyObject(region, transferObject).then(() => {
-                this.deleteObject(region, transferObject.from).then(resolve, reject);
+            this.copyObject(s3RegionId, transferObject).then(() => {
+                this.deleteObject(s3RegionId, transferObject.from).then(resolve, reject);
             }, reject);
         });
     }
 
-    copyObject(region: string, transferObject: TransferObject): Promise<void> {
+    copyObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([
-                this.getClient(region),
-                this.getObjectStorageClass(region, transferObject.from),
+                this.getClient(s3RegionId),
+                this.getObjectStorageClass(s3RegionId, transferObject.from),
                 this.fromKodoBucketNameToS3BucketId(transferObject.from.bucket),
                 this.fromKodoBucketNameToS3BucketId(transferObject.to.bucket),
             ]).then(([s3, storageClass, fromBucketId, toBucketId]) => {
@@ -465,9 +369,9 @@ export class S3 implements Adapter {
         });
     }
 
-    private getObjectStorageClass(region: string, object: Object): Promise<string | undefined> {
+    private getObjectStorageClass(s3RegionId: string, object: Object): Promise<string | undefined> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -479,13 +383,13 @@ export class S3 implements Adapter {
         });
     }
 
-    moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(5);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
-                        this.moveObject(region, transferObject).then(() => {
+                        this.moveObject(s3RegionId, transferObject).then(() => {
                             if (callback && callback(index) === false) {
                                 reject(new Error('aborted'));
                                 return;
@@ -508,13 +412,13 @@ export class S3 implements Adapter {
         });
     }
 
-    copyObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(5);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
-                        this.copyObject(region, transferObject).then(() => {
+                        this.copyObject(s3RegionId, transferObject).then(() => {
                             if (callback && callback(index) === false) {
                                 reject(new Error('aborted'));
                                 return;
@@ -537,9 +441,9 @@ export class S3 implements Adapter {
         });
     }
 
-    deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 const semaphore = new Semaphore(5);
                 const batchCount = 100;
                 const batches: Array<Array<string>> = [];
@@ -618,9 +522,9 @@ export class S3 implements Adapter {
         });
     }
 
-    getFrozenInfo(region: string, object: Object): Promise<FrozenInfo> {
+    getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -648,9 +552,9 @@ export class S3 implements Adapter {
         });
     }
 
-    unfreeze(region: string, object: Object, days: number): Promise<void> {
+    unfreeze(s3RegionId: string, object: Object, days: number): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.RestoreObjectRequest = {
                     Bucket: bucketId, Key: object.key,
                     RestoreRequest: {
@@ -669,16 +573,16 @@ export class S3 implements Adapter {
         });
     }
 
-    listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
+    listObjects(s3RegionId: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 const results: ListedObjects = { objects: [] };
-                this._listObjects(region, s3, bucket, bucketId, prefix, resolve, reject, results, option);
+                this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, option);
             }, reject);
         });
     }
 
-    private _listObjects(region: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
+    private _listObjects(s3RegionId: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
         const params: AWS.S3.Types.ListObjectsRequest = {
             Bucket: bucketId, Delimiter: option?.delimiter, Marker: option?.nextContinuationToken, MaxKeys: option?.maxKeys, Prefix: prefix,
         };
@@ -718,7 +622,7 @@ export class S3 implements Adapter {
                         if (resultsSize < option.minKeys) {
                             newOption.minKeys = option.minKeys;
                             newOption.maxKeys = option.minKeys - resultsSize;
-                            this._listObjects(region, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
+                            this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
                             return;
                         }
                     }
@@ -728,9 +632,9 @@ export class S3 implements Adapter {
         });
     }
 
-    createMultipartUpload(region: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput> {
+    createMultipartUpload(s3RegionId: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 s3.createMultipartUpload({ Bucket: bucketId, Key: object.key, Metadata: header?.metadata }, (err, data) => {
                     if (err) {
                         reject(err);
@@ -742,9 +646,9 @@ export class S3 implements Adapter {
         });
     }
 
-    uploadPart(region: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
                 if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length });
@@ -775,9 +679,9 @@ export class S3 implements Adapter {
         });
     }
 
-    completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, _header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, _header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(region), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.CompleteMultipartUploadRequest = {
                     Bucket: bucketId, Key: object.key, UploadId: uploadId,
                     MultipartUpload: {

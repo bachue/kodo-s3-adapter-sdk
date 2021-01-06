@@ -40,7 +40,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             });
 
             it('moves and copies object', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);
@@ -380,10 +380,14 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
                     const filePartUploaded = new Set<number>();
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
                                                     putCallback: {
+                                                        partsInitCallback: (info) => {
+                                                            expect(info.uploadId).to.be.ok;
+                                                            expect(info.parts).to.be.empty;
+                                                        },
                                                         progressCallback: (uploaded, total) => {
                                                             expect(total).to.equal((1 << 20) * 11);
                                                             fileUploaded = uploaded;
@@ -421,7 +425,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 try {
                     await tmpfile.write(randomBytes((1 << 20) * 100));
                     const uploader = new Uploader(qiniuAdapter);
-                    const promise = uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile);
+                    const promise = uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100);
 
                     await new Promise((resolve, reject) => {
                         setTimeout(() => {
@@ -460,7 +464,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
                     const filePartUploaded = new Set<number>();
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
                                                     recovered: {
@@ -471,6 +475,10 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                         ],
                                                     },
                                                     putCallback: {
+                                                        partsInitCallback: (info) => {
+                                                            expect(info.uploadId).to.equal(createResult.uploadId);
+                                                            expect(info.parts).to.have.lengthOf(2);
+                                                        },
                                                         progressCallback: (uploaded, total) => {
                                                             expect(total).to.equal((1 << 20) * 11);
                                                             fileUploaded = uploaded;
@@ -505,7 +513,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     await tmpfile.write(randomBytes((1 << 10) * 11));
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 10) * 11,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
                                                     putCallback: {

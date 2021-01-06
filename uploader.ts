@@ -8,23 +8,30 @@ export class Uploader {
     constructor(private readonly adapter: Adapter) {
     }
 
-    putObjectFromFile(region: string, object: Object, file: FileHandle, putFileOption?: PutFileOption): Promise<void> {
+    putObjectFromFile(region: string, object: Object, file: FileHandle, fileSize: number, putFileOption?: PutFileOption): Promise<void> {
         this.aborted = false;
 
         return new Promise((resolve, reject) => {
-            Promise.all([this.initParts(region, object, putFileOption), file.stat()]).then(([recovered, fileStat]) => {
+            if (this.aborted) {
+                reject(Uploader.userCanceledError);
+                return;
+            }
+            const partSize = putFileOption?.partSize ?? (1 << 22);
+            const partsCount = partsCountOfFile(fileSize, partSize);
+
+            if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
+                this.putObject(region, object, file, fileSize, putFileOption).then(resolve, reject);
+                return;
+            }
+
+            this.initParts(region, object, putFileOption).then((recovered) => {
                 if (this.aborted) {
                     reject(Uploader.userCanceledError);
                     return;
                 }
 
-                const fileSize = fileStat.size;
-                const partSize = putFileOption?.partSize ?? (1 << 22);
-                const partsCount = partsCountOfFile(fileSize, partSize);
-
-                if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
-                    this.putObject(region, object, file, fileSize, putFileOption).then(resolve, reject);
-                    return;
+                if (putFileOption?.putCallback?.partsInitCallback) {
+                    putFileOption.putCallback.partsInitCallback(recovered);
                 }
 
                 const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
@@ -130,6 +137,7 @@ export class Uploader {
 
 export interface PutCallback {
     progressCallback?: ProgressCallback;
+    partsInitCallback?: (initInfo: RecoveredOption) => void;
     partPutCallback?: (part: Part) => void;
 }
 

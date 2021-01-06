@@ -290,7 +290,6 @@ export class Kodo implements Adapter {
                     retry: 10,
                     retryDelay: 500,
                     followRedirect: true,
-                    gzip: true,
                 }).then((response: HttpClientResponse<Buffer>) => {
                     if (response.status === 200) {
                         resolve({ data: response.data, header: getObjectHeader(response)});

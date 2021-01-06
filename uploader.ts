@@ -22,7 +22,7 @@ export class Uploader {
                 const partSize = putFileOption?.partSize ?? (1 << 22);
                 const partsCount = partsCountOfFile(fileSize, partSize);
 
-                if (partsCount <= 1) {
+                if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
                     this.putObject(region, object, file, fileSize, putFileOption).then(resolve, reject);
                     return;
                 }
@@ -138,6 +138,7 @@ export interface PutFileOption {
     recovered?: RecoveredOption,
     putCallback?: PutCallback;
     partSize?: number;
+    uploadThreshold?: number;
 }
 
 export interface RecoveredOption {

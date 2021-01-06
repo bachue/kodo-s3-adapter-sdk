@@ -40,7 +40,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             });
 
             it('moves and copies object', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey, 'http://uc.qbox.me');
+                const qiniu = new Qiniu(accessKey, secretKey, 'http://10.200.20.25:10221');
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);

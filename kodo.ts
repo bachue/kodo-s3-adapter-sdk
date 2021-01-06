@@ -250,6 +250,7 @@ export class Kodo implements Adapter {
                 fileOption.contentType = header!.contentType;
             }
             form.append('file', data, fileOption);
+            console.log('form:', form.getBuffer().toString());
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
@@ -258,12 +259,13 @@ export class Kodo implements Adapter {
                 contentType: form.getHeaders()['content-type'],
                 form: form,
                 uploadProgress: progressCallback,
-            }).then(() => {
-                if (header?.contentType) {
-                    this.setObjectContentType(s3RegionId, object, header!.contentType).then(resolve, reject);
-                } else {
+            }).then((response) => {
+                console.log('response:', response);
+                // if (header?.contentType) {
+                //     this.setObjectContentType(s3RegionId, object, header!.contentType).then(resolve, reject);
+                // } else {
                     resolve();
-                }
+                // }
             }, reject);
         });
     }

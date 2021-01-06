@@ -40,12 +40,14 @@ process.on('uncaughtException', (err: any, origin: any) => {
             });
 
             it('moves and copies object', async () => {
-                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniu = new Qiniu(accessKey, secretKey, 'http://uc.qbox.me');
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
-                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+                await qiniuAdapter.putObject(
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer,
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
 
                 const keyCopied = `${key}-copy`;
                 await qiniuAdapter.copyObject(bucketRegionId, { from: { bucket: bucketName, key: key }, to: { bucket: bucketName, key: keyCopied } });
@@ -56,6 +58,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
                     expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                    expect(header.contentType).to.equal('application/json');
                 }
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: keyCopied });
@@ -69,6 +72,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
                     expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                    expect(header.contentType).to.equal('application/json');
                 }
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: keyMoved });
@@ -273,7 +277,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 let loaded = 0;
                 await qiniuAdapter.putObject(
                     bucketRegionId, { bucket: bucketName, key: key }, buffer,
-                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
                     (uploaded: number, total: number) => {
                         expect(total).to.at.least(buffer.length);
                         loaded = uploaded;
@@ -295,6 +299,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                         expect(response.headers['x-amz-meta-key-a']).to.equal('Value-A');
                         expect(response.headers['x-amz-meta-key-b']).to.equal('Value-B');
                     }
+                    expect(response.headers['content-type']).to.equal('application/json');
                     response.res.destroy();
                 }
 
@@ -305,6 +310,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(result.header.metadata['key-a']).to.equal('Value-A');
                     expect(result.header.metadata['key-b']).to.equal('Value-B');
                     expect(result.header.metadata).to.have.all.keys('key-a', 'key-b');
+                    expect(result.header.contentType).to.equal('application/json');
                 }
 
                 {
@@ -313,6 +319,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
                     expect(header.metadata).to.have.all.keys('key-a', 'key-b');
+                    expect(header.contentType).to.equal('application/json');
                 }
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
@@ -326,9 +333,9 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const setHeader = { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' };
 
-                const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key },
-                                                { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+                const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, setHeader);
 
                 const buffer_1 = randomBytes(1 << 20);
                 let loaded = 0;
@@ -350,11 +357,12 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 await qiniuAdapter.completeMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, createResult.uploadId,
                     [{ partNumber: 1, etag: uploadPartResult_1.etag }, { partNumber: 2, etag: uploadPartResult_2.etag }],
-                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
+                    setHeader);
 
                 const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                 expect(header.metadata['key-a']).to.equal('Value-A');
                 expect(header.metadata['key-b']).to.equal('Value-B');
+                expect(header.contentType).to.equal('application/json');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
@@ -374,7 +382,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const filePartUploaded = new Set<number>();
                     await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile,
                                                 {
-                                                    header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
+                                                    header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
                                                     putCallback: {
                                                         progressCallback: (uploaded, total) => {
                                                             expect(total).to.equal((1 << 20) * 11);
@@ -394,6 +402,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
+                    expect(header.contentType).to.equal('application/json');
 
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 } finally {

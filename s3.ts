@@ -273,6 +273,9 @@ export class S3 implements Adapter {
                     ContentLength: data.length,
                     Metadata: header?.metadata,
                 };
+                if (header?.contentType) {
+                    params.ContentType = header!.contentType;
+                }
                 const uploader = s3.putObject(params);
                 if (progressCallback) {
                     uploader.on('httpUploadProgress', (progress) => {
@@ -635,7 +638,13 @@ export class S3 implements Adapter {
     createMultipartUpload(s3RegionId: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.createMultipartUpload({ Bucket: bucketId, Key: object.key, Metadata: header?.metadata }, (err, data) => {
+                const params: AWS.S3.Types.CreateMultipartUploadRequest = {
+                    Bucket: bucketId, Key: object.key, Metadata: header?.metadata,
+                };
+                if (header?.contentType) {
+                    params.ContentType = header!.contentType;
+                }
+                s3.createMultipartUpload(params, (err, data) => {
                     if (err) {
                         reject(err);
                     } else {

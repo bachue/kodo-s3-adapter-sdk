@@ -99,11 +99,11 @@ export interface ObjectGetResult {
 
 export interface SetObjectHeader {
     metadata?: { [key: string]: string; };
+    contentType?: string;
 }
 
 export interface ObjectHeader extends SetObjectHeader {
     size: number;
-    contentType: string;
     lastModified: Date;
     metadata: { [key: string]: string; };
 }

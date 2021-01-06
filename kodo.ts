@@ -244,7 +244,12 @@ export class Kodo implements Adapter {
                 }
             }
             form.append('crc32', CRC32.unsigned(data));
-            form.append('file', data);
+
+            const fileOption: FormData.AppendOptions = {};
+            if (header?.contentType) {
+                fileOption.contentType = header!.contentType;
+            }
+            form.append('file', data, fileOption);
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
@@ -253,6 +258,25 @@ export class Kodo implements Adapter {
                 contentType: form.getHeaders()['content-type'],
                 form: form,
                 uploadProgress: progressCallback,
+            }).then(() => {
+                if (header?.contentType) {
+                    this.setObjectContentType(s3RegionId, object, header!.contentType).then(resolve, reject);
+                } else {
+                    resolve();
+                }
+            }, reject);
+        });
+    }
+
+    setObjectContentType(s3RegionId: string, object: Object, contentType: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `chgm/${encodeObject(object)}/mime/${urlSafeBase64(contentType)}`,
+                dataType: 'json',
+                s3RegionId: s3RegionId,
+                contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }, reject);
         });
     }
@@ -708,11 +732,16 @@ export class Kodo implements Adapter {
                     metadata[`x-qn-meta-${metaKey}`] = metaValue;
                 }
             }
+            const data: any = { parts: parts, metadata: metadata };
+            if (header?.contentType) {
+                data.mimeType = header!.contentType;
+            }
+
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
                 path: path,
-                data: JSON.stringify({ parts: parts, metadata: metadata }),
+                data: JSON.stringify(data),
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 headers: { 'authorization': `UpToken ${token}` },

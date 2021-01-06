@@ -410,6 +410,30 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
+            it('upload object and then cancel', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `100m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const tmpfilePath = tempfile();
+
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
+                try {
+                    await tmpfile.write(randomBytes((1 << 20) * 100));
+                    const uploader = new Uploader(qiniuAdapter);
+                    const promise = uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile);
+
+                    await new Promise((resolve, reject) => {
+                        setTimeout(() => {
+                            promise.then(reject, resolve);
+                            uploader.abort();
+                        }, 1000);
+                    });
+                } finally {
+                    await tmpfile.close();
+                }
+            });
+
             it('recover object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);

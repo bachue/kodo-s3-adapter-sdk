@@ -2,12 +2,22 @@ import { Adapter, SetObjectHeader, Part, ProgressCallback, Object } from './adap
 import { FileHandle } from 'fs/promises';
 
 export class Uploader {
+    private aborted: boolean = false;
+    private static readonly userCanceledError = new Error('User Canceled');
+
     constructor(private readonly adapter: Adapter) {
     }
 
     putObjectFromFile(region: string, object: Object, file: FileHandle, putFileOption?: PutFileOption): Promise<void> {
+        this.aborted = false;
+
         return new Promise((resolve, reject) => {
             Promise.all([this.initParts(region, object, putFileOption), file.stat()]).then(([recovered, fileStat]) => {
+                if (this.aborted) {
+                    reject(Uploader.userCanceledError);
+                    return;
+                }
+
                 const fileSize = fileStat.size;
                 const partSize = putFileOption?.partSize ?? (1 << 22);
                 const partsCount = partsCountOfFile(fileSize, partSize);
@@ -19,6 +29,11 @@ export class Uploader {
 
                 const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
                 this.uploadParts(region, object, file, fileSize, uploaded, recovered, 1, partsCount, partSize, putFileOption).then(() => {
+                    if (this.aborted) {
+                        reject(Uploader.userCanceledError);
+                        return;
+                    }
+
                     recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
                     this.adapter.completeMultipartUpload(region, object, recovered.uploadId, recovered.parts, putFileOption?.header)
                                 .then(resolve, reject);
@@ -27,10 +42,19 @@ export class Uploader {
         });
     }
 
+    abort(): void {
+        this.aborted = true;
+    }
+
     private putObject(region: string, object: Object, file: FileHandle, fileSize: number, putFileOption?: PutFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const data = Buffer.alloc(fileSize);
             file.read(data, 0, fileSize, 0).then(({ bytesRead }) => {
+                if (this.aborted) {
+                    reject(Uploader.userCanceledError);
+                    return;
+                }
+
                 this.adapter.putObject(region, object, data.subarray(0, bytesRead),
                                        putFileOption?.header, putFileOption?.putCallback?.progressCallback)
                             .then(resolve, reject);
@@ -63,6 +87,11 @@ export class Uploader {
                 return;
             }
 
+            if (this.aborted) {
+                reject(Uploader.userCanceledError);
+                return;
+            }
+
             if (findPartsByNumber(recovered.parts, partNumber)) {
                 this.uploadParts(region, object, file, fileSize, uploaded, recovered,
                                  partNumber + 1, partsCount, partSize, putFileOption)
@@ -70,6 +99,11 @@ export class Uploader {
             } else {
                 const data = Buffer.alloc(partSize);
                 file.read(data, 0, partSize, partSize * (partNumber - 1)).then(({ bytesRead }) => {
+                    if (this.aborted) {
+                        reject(Uploader.userCanceledError);
+                        return;
+                    }
+
                     let progressCallback: ProgressCallback | undefined = undefined;
                     if (putFileOption?.putCallback?.progressCallback) {
                         progressCallback = (partUploaded: number, _partTotal: number) => {

@@ -281,11 +281,13 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.putObject(
                     bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
-                    (uploaded: number, total: number) => {
-                        expect(total).to.at.least(buffer.length);
-                        loaded = uploaded;
-                    },
-                    throttle);
+                    {
+                        progressCallback: (uploaded: number, total: number) => {
+                            expect(total).to.at.least(buffer.length);
+                            loaded = uploaded;
+                        },
+                        throttle: throttle,
+                    });
                 expect(loaded).to.at.least(buffer.length);
 
                 let isExisted: boolean = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
@@ -318,6 +320,21 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
 
                 {
+                    let dataLength = 0;
+                    const readable = await qiniuAdapter.getObjectStream(bucketRegionId, { bucket: bucketName, key: key });
+                    await new Promise((resolve, reject) => {
+                        readable.on('data', (chunk: any) => {
+                            dataLength += chunk.length;
+                        });
+                        readable.on('end', () => {
+                            expect(dataLength).to.equal(1 << 12);
+                            resolve();
+                        });
+                        readable.on('error', reject);
+                    });
+                }
+
+                {
                     const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                     expect(header.size).to.equal(1 << 12);
                     expect(header.metadata['key-a']).to.equal('Value-A');
@@ -330,6 +347,30 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
                 expect(isExisted).to.equal(false);
+            });
+
+            it('uploads and gets big object', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes((1 << 20) * 64);
+                const key = `64m-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject(
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
+
+                let dataLength = 0;
+                const readable = await qiniuAdapter.getObjectStream(bucketRegionId, { bucket: bucketName, key: key });
+                await new Promise((resolve, reject) => {
+                    readable.on('data', (chunk: any) => {
+                        dataLength += chunk.length;
+                    });
+                    readable.on('end', () => {
+                        expect(dataLength).to.equal((1 << 20) * 64);
+                        resolve();
+                    });
+                    readable.on('error', reject);
+                });
             });
 
             it('upload data by chunk', async () => {
@@ -345,19 +386,24 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const buffer_1 = randomBytes(1 << 20);
                 let loaded = 0;
                 const uploadPartResult_1 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
-                                                createResult.uploadId, 1, buffer_1, (uploaded: number, total: number) => {
-                                                    expect(total).to.equal(buffer_1.length);
-                                                    loaded = uploaded;
-                                                },
-                                                throttle);
+                                                createResult.uploadId, 1, buffer_1, {
+                                                    progressCallback: (uploaded: number, total: number) => {
+                                                        expect(total).to.equal(buffer_1.length);
+                                                        loaded = uploaded;
+                                                    },
+                                                    throttle: throttle,
+                                                });
                 expect(loaded).to.equal(buffer_1.length);
 
                 const buffer_2 = randomBytes(1 << 20);
                 loaded = 0;
                 const uploadPartResult_2 = await qiniuAdapter.uploadPart(bucketRegionId, { bucket: bucketName, key: key },
-                                                createResult.uploadId, 2, buffer_2, (uploaded: number, total: number) => {
-                                                    expect(total).to.equal(buffer_2.length);
-                                                    loaded = uploaded;
+                                                createResult.uploadId, 2, buffer_2, {
+                                                    progressCallback: (uploaded: number, total: number) => {
+                                                        expect(total).to.equal(buffer_2.length);
+                                                        loaded = uploaded;
+                                                    },
+                                                    throttle: throttle,
                                                 });
                 expect(loaded).to.equal(buffer_2.length);
 

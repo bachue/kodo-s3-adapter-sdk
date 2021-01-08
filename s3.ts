@@ -3,16 +3,15 @@ import AWS from 'aws-sdk';
 import os from 'os';
 import pkg from './package.json';
 import md5 from 'js-md5';
-import { Readable } from 'stream';
 import { URL } from 'url';
+import { Readable } from 'stream';
 import { Semaphore } from 'semaphore-promise';
 import { RegionService } from './region_service';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
-import { Throttle } from 'stream-throttle';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption, PutObjectOption,
+         InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -256,7 +255,7 @@ export class S3 implements Adapter {
     }
 
     putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-              header?: SetObjectHeader, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<void> {
+              header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
@@ -264,16 +263,16 @@ export class S3 implements Adapter {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    if (throttle) {
-                        dataSource = reader.pipe(throttle);
+                    if (option?.throttle) {
+                        dataSource = reader.pipe(option.throttle);
                     } else {
                         dataSource = reader;
                     }
-                } else if (throttle) {
+                } else if (option?.throttle) {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    dataSource = reader.pipe(throttle);
+                    dataSource = reader.pipe(option.throttle);
                 } else {
                     dataSource = data;
                 }
@@ -289,9 +288,9 @@ export class S3 implements Adapter {
                     params.ContentType = header!.contentType;
                 }
                 const uploader = s3.putObject(params);
-                if (progressCallback) {
+                if (option?.progressCallback) {
                     uploader.on('httpUploadProgress', (progress) => {
-                        progressCallback!(progress.loaded, progress.total);
+                        option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
                 uploader.send((err) => {
@@ -316,6 +315,31 @@ export class S3 implements Adapter {
                             data: Buffer.from(data.Body!),
                             header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
                         });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    getObjectStream(s3RegionId: string, object: Object, _domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                let range: string | undefined = undefined;
+                if (option?.rangeStart || option?.rangeEnd) {
+                    range = `bytes=${option?.rangeStart}-${option?.rangeEnd}`;
+                }
+
+                s3.getObject({ Bucket: bucketId, Key: object.key, Range: range }, (err, data) => {
+                    const body: any = data.Body;
+                    if (err) {
+                        reject(err);
+                    } else if (body instanceof Readable) {
+                        resolve(body);
+                    } else {
+                        const reader = new ReadableStreamBuffer({ initialSize: body.length, chunkSize: 1 << 20 });
+                        reader.put(Buffer.from(body));
+                        reader.stop();
+                        resolve(reader);
                     }
                 });
             }, reject);
@@ -673,8 +697,7 @@ export class S3 implements Adapter {
         });
     }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number,
-               data: Buffer, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
@@ -682,16 +705,16 @@ export class S3 implements Adapter {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    if (throttle) {
-                        dataSource = reader.pipe(throttle);
+                    if (option?.throttle) {
+                        dataSource = reader.pipe(option.throttle);
                     } else {
                         dataSource = reader;
                     }
-                } else if (throttle) {
+                } else if (option?.throttle) {
                     const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    dataSource = reader.pipe(throttle);
+                    dataSource = reader.pipe(option.throttle);
                 } else {
                     dataSource = data;
                 }
@@ -700,9 +723,9 @@ export class S3 implements Adapter {
                     ContentMD5: md5.hex(data), PartNumber: partNumber, UploadId: uploadId,
                 };
                 const uploader = s3.uploadPart(params);
-                if (progressCallback) {
+                if (option?.progressCallback) {
                     uploader.on('httpUploadProgress', (progress) => {
-                        progressCallback!(progress.loaded, progress.total);
+                        option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
                 uploader.send((err, data) => {

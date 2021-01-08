@@ -1,19 +1,20 @@
 import AsyncLock from 'async-lock';
+import http from 'http';
 import os from 'os';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
-import { Throttle } from 'stream-throttle';
 import { Semaphore } from 'semaphore-promise';
 import { RegionService } from './region_service';
 import { URL, URLSearchParams } from 'url';
+import { Readable } from 'stream';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
+         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
+         InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -234,7 +235,7 @@ export class Kodo implements Adapter {
     }
 
     putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-              header?: SetObjectHeader, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<void> {
+              header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const form =  new FormData();
@@ -261,8 +262,8 @@ export class Kodo implements Adapter {
                 s3RegionId: s3RegionId,
                 contentType: form.getHeaders()['content-type'],
                 form: form,
-                uploadProgress: progressCallback,
-                uploadThrottle: throttle,
+                uploadProgress: option?.progressCallback,
+                uploadThrottle: option?.throttle,
             }).then(() => { resolve(); }, reject);
         });
     }
@@ -279,6 +280,31 @@ export class Kodo implements Adapter {
                 }).then((response: HttpClientResponse<Buffer>) => {
                     if (response.status === 200) {
                         resolve({ data: response.data, header: getObjectHeader(response)});
+                    } else {
+                        reject(new Error(response.res.statusMessage));
+                    }
+                }, reject);
+            }, reject);
+        });
+    }
+
+    getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
+        return new Promise((resolve, reject) => {
+            this.getObjectURL(s3RegionId, object, domain).then((url) => {
+                const headers: http.IncomingHttpHeaders = {};
+                if (option?.rangeStart || option?.rangeEnd) {
+                    headers['Range'] = `bytes=${option?.rangeStart}-${option?.rangeEnd}`;
+                }
+
+                Kodo.httpClient.request(url.toString(), {
+                    method: 'GET',
+                    timeout: [30000, 300000],
+                    followRedirect: true,
+                    headers: headers,
+                    streaming: true,
+                }).then((response: HttpClientResponse<any>) => {
+                    if (response.status === 200) {
+                        resolve(response.res);
                     } else {
                         reject(new Error(response.res.statusMessage));
                     }
@@ -684,8 +710,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number,
-               data: Buffer, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
@@ -701,8 +726,8 @@ export class Kodo implements Adapter {
                     'authorization': `UpToken ${token}`,
                     'content-md5': md5.hex(data),
                 },
-                uploadProgress: progressCallback,
-                uploadThrottle: throttle,
+                uploadProgress: option?.progressCallback,
+                uploadThrottle: option?.throttle,
             }).then((response) => {
                 resolve({ etag: response.data.etag });
             }, reject);

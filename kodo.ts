@@ -303,7 +303,7 @@ export class Kodo implements Adapter {
                     headers: headers,
                     streaming: true,
                 }).then((response: HttpClientResponse<any>) => {
-                    if (response.status === 200) {
+                    if (response.status === 200 || response.status === 206) {
                         resolve(response.res);
                     } else {
                         reject(new Error(response.res.statusMessage));

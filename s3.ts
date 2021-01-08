@@ -329,19 +329,7 @@ export class S3 implements Adapter {
                     range = `bytes=${option?.rangeStart}-${option?.rangeEnd}`;
                 }
 
-                s3.getObject({ Bucket: bucketId, Key: object.key, Range: range }, (err, data) => {
-                    const body: any = data.Body;
-                    if (err) {
-                        reject(err);
-                    } else if (body instanceof Readable) {
-                        resolve(body);
-                    } else {
-                        const reader = new ReadableStreamBuffer({ initialSize: body.length, chunkSize: 1 << 20 });
-                        reader.put(Buffer.from(body));
-                        reader.stop();
-                        resolve(reader);
-                    }
-                });
+                resolve(s3.getObject({ Bucket: bucketId, Key: object.key, Range: range }).createReadStream());
             }, reject);
         });
     }

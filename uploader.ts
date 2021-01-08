@@ -1,6 +1,6 @@
 import { Adapter, SetObjectHeader, Part, ProgressCallback, Object } from './adapter';
 import { FileHandle } from 'fs/promises';
-import { Throttle } from 'stream-throttle';
+import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 export class Uploader {
     private aborted: boolean = false;
@@ -36,7 +36,7 @@ export class Uploader {
                 }
 
                 const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
-                this.uploadParts(region, object, file, fileSize, uploaded, recovered, 1, partsCount, partSize, putFileOption).then(() => {
+                this.uploadParts(region, object, file, fileSize, uploaded, recovered, 1, partsCount, partSize, putFileOption || {}).then(() => {
                     if (this.aborted) {
                         reject(Uploader.userCanceledError);
                         return;
@@ -63,10 +63,15 @@ export class Uploader {
                     return;
                 }
 
+                let throttle: Throttle | undefined = undefined;
+                if (putFileOption?.uploadThrottleOption) {
+                    const throttleGroup = putFileOption?.uploadThrottleGroup ?? new ThrottleGroup(putFileOption.uploadThrottleOption);
+                    throttle = throttleGroup.throttle(putFileOption.uploadThrottleOption);
+                }
                 this.adapter.putObject(region, object, data.subarray(0, bytesRead), originalFileName,
                                        putFileOption?.header, {
                                            progressCallback: putFileOption?.putCallback?.progressCallback,
-                                           throttle: putFileOption?.uploadThrottle,
+                                           throttle: throttle,
                                        }).then(resolve, reject);
             }, reject);
         });
@@ -90,7 +95,7 @@ export class Uploader {
     }
 
     private uploadParts(region: string, object: Object, file: FileHandle, fileSize: number, uploaded: number, recovered: RecoveredOption,
-                        partNumber: number, partsCount: number, partSize: number, putFileOption?: PutFileOption): Promise<void> {
+                        partNumber: number, partsCount: number, partSize: number, putFileOption: PutFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
             if (partNumber > partsCount) {
                 resolve();
@@ -114,16 +119,26 @@ export class Uploader {
                         return;
                     }
 
+                    const makeThrottle = (): Throttle | undefined => {
+                        if (putFileOption.uploadThrottleOption) {
+                            if (!putFileOption.uploadThrottleGroup) {
+                                putFileOption.uploadThrottleGroup = new ThrottleGroup(putFileOption.uploadThrottleOption);
+                            }
+                            return putFileOption.uploadThrottleGroup.throttle(putFileOption.uploadThrottleOption);
+                        }
+                        return undefined;
+                    };
+
                     let progressCallback: ProgressCallback | undefined = undefined;
-                    if (putFileOption?.putCallback?.progressCallback) {
+                    if (putFileOption.putCallback?.progressCallback) {
                         progressCallback = (partUploaded: number, _partTotal: number) => {
-                            putFileOption!.putCallback!.progressCallback!(uploaded + partUploaded, fileSize);
+                            putFileOption.putCallback!.progressCallback!(uploaded + partUploaded, fileSize);
                         };
                     }
                     this.adapter.uploadPart(region, object, recovered.uploadId, partNumber,
                                             data!.subarray(0, bytesRead), {
                                                 progressCallback: progressCallback,
-                                                throttle: putFileOption?.uploadThrottle,
+                                                throttle: makeThrottle(),
                                             }).then((output) => {
                         data = undefined;
                         const part: Part = { etag: output.etag, partNumber: partNumber };
@@ -154,7 +169,8 @@ export interface PutFileOption {
     putCallback?: PutCallback;
     partSize?: number;
     uploadThreshold?: number;
-    uploadThrottle?: Throttle;
+    uploadThrottleGroup?: ThrottleGroup;
+    uploadThrottleOption?: ThrottleOptions;
 }
 
 export interface RecoveredOption {

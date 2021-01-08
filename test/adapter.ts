@@ -353,24 +353,42 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
-                const buffer = randomBytes((1 << 20) * 16);
-                const key = `16m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const buffer = randomBytes((1 << 20) * 8);
+                const key = `8m-${Math.floor(Math.random() * (2**64 -1))}`;
                 await qiniuAdapter.putObject(
                     bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
 
-                let dataLength = 0;
-                const readable = await qiniuAdapter.getObjectStream(bucketRegionId, { bucket: bucketName, key: key });
-                await new Promise((resolve, reject) => {
-                    readable.on('data', (chunk: any) => {
-                        dataLength += chunk.length;
+                {
+                    let dataLength = 0;
+                    const readable = await qiniuAdapter.getObjectStream(bucketRegionId, { bucket: bucketName, key: key });
+                    await new Promise((resolve, reject) => {
+                        readable.on('data', (chunk: any) => {
+                            dataLength += chunk.length;
+                        });
+                        readable.on('end', () => {
+                            expect(dataLength).to.equal((1 << 20) * 8);
+                            resolve();
+                        });
+                        readable.on('error', reject);
                     });
-                    readable.on('end', () => {
-                        expect(dataLength).to.equal((1 << 20) * 16);
-                        resolve();
+                }
+                {
+                    let dataLength = 0;
+                    const readable = await qiniuAdapter.getObjectStream(bucketRegionId, { bucket: bucketName, key: key },
+                                                                        undefined,
+                                                                        { rangeStart: (1 << 20), rangeEnd: (1 << 20) * 2 });
+                    await new Promise((resolve, reject) => {
+                        readable.on('data', (chunk: any) => {
+                            dataLength += chunk.length;
+                        });
+                        readable.on('end', () => {
+                            expect(dataLength).to.equal((1 << 20) + 1);
+                            resolve();
+                        });
+                        readable.on('error', reject);
                     });
-                    readable.on('error', reject);
-                });
+                }
             });
 
             it('upload data by chunk', async () => {
@@ -425,7 +443,6 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const key = `11m-${Math.floor(Math.random() * (2**64 -1))}`;
                 const tmpfilePath = tempfile();
-                const throttle = new Throttle({ rate: 1 << 30 });
 
                 const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
                 try {
@@ -449,7 +466,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                             filePartUploaded.add(part.partNumber);
                                                         },
                                                     },
-                                                    uploadThrottle: throttle,
+                                                    uploadThrottleOption: { rate: 1 << 30 },
                                                 });
                     expect(fileUploaded).to.equal((1 << 20) * 11);
                     expect(filePartUploaded).to.have.lengthOf(3);

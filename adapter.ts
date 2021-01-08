@@ -1,6 +1,7 @@
 import { Region } from './region';
 import { URL } from 'url';
 import { Throttle } from 'stream-throttle';
+import { Readable } from 'stream';
 
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;

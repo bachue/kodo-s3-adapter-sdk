@@ -254,7 +254,7 @@ export class S3 implements Adapter {
         });
     }
 
-    putObject(s3RegionId: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
+    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
@@ -272,6 +272,7 @@ export class S3 implements Adapter {
                     Body: dataSource,
                     ContentLength: data.length,
                     Metadata: header?.metadata,
+                    ContentDisposition: makeContentDisposition(originalFileName),
                 };
                 if (header?.contentType) {
                     params.ContentType = header!.contentType;
@@ -635,11 +636,11 @@ export class S3 implements Adapter {
         });
     }
 
-    createMultipartUpload(s3RegionId: string, object: Object, header?: SetObjectHeader): Promise<InitPartsOutput> {
+    createMultipartUpload(s3RegionId: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.CreateMultipartUploadRequest = {
-                    Bucket: bucketId, Key: object.key, Metadata: header?.metadata,
+                    Bucket: bucketId, Key: object.key, Metadata: header?.metadata, ContentDisposition: makeContentDisposition(originalFileName),
                 };
                 if (header?.contentType) {
                     params.ContentType = header!.contentType;
@@ -688,7 +689,7 @@ export class S3 implements Adapter {
         });
     }
 
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, _header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, _originalFileName: string, _header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.CompleteMultipartUploadRequest = {
@@ -735,4 +736,8 @@ function parseRestoreInfo(s: string): Map<string, string> {
         });
     }
     return result;
+}
+
+function makeContentDisposition(originalFileName: string): string {
+    return `attachment; filename*=utf-8''${encodeURIComponent(originalFileName)}`;
 }

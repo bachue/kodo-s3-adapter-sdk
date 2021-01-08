@@ -25,6 +25,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
         const bucketRegionId = process.env.QINIU_TEST_BUCKET_REGION_ID!;
         const accessKey = process.env.QINIU_ACCESS_KEY!;
         const secretKey = process.env.QINIU_SECRET_KEY!;
+        const originalFileName = '测试文件名.data';
 
         context('objects operation', () => {
             it('get or getHeaders of unexisted object', async () => {
@@ -46,7 +47,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
                 await qiniuAdapter.putObject(
-                    bucketRegionId, { bucket: bucketName, key: key }, buffer,
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
 
                 const keyCopied = `${key}-copy`;
@@ -97,7 +98,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const uploadPromises = keys.map((key) => {
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
-                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10))
+                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10), originalFileName)
                                         .then(resolve, reject)
                                         .finally(() => { release(); });
                         });
@@ -203,7 +204,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
-                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer);
+                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName);
 
                 let frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Normal');
@@ -239,7 +240,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const uploadPromises = keys.map((key) => {
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
-                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10))
+                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10), originalFileName)
                                         .then(resolve, reject)
                                         .finally(() => { release(); });
                         });
@@ -276,7 +277,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
                 let loaded = 0;
                 await qiniuAdapter.putObject(
-                    bucketRegionId, { bucket: bucketName, key: key }, buffer,
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
                     (uploaded: number, total: number) => {
                         expect(total).to.at.least(buffer.length);
@@ -335,7 +336,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
                 const setHeader = { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' };
 
-                const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, setHeader);
+                const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, originalFileName, setHeader);
 
                 const buffer_1 = randomBytes(1 << 20);
                 let loaded = 0;
@@ -357,7 +358,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 await qiniuAdapter.completeMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, createResult.uploadId,
                     [{ partNumber: 1, etag: uploadPartResult_1.etag }, { partNumber: 2, etag: uploadPartResult_2.etag }],
-                    setHeader);
+                    originalFileName, setHeader);
 
                 const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                 expect(header.metadata['key-a']).to.equal('Value-A');
@@ -380,7 +381,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
                     const filePartUploaded = new Set<number>();
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11, originalFileName,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' },
                                                     putCallback: {
@@ -425,7 +426,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 try {
                     await tmpfile.write(randomBytes((1 << 20) * 100));
                     const uploader = new Uploader(qiniuAdapter);
-                    const promise = uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100);
+                    const promise = uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100, originalFileName);
 
                     await new Promise((resolve, reject) => {
                         setTimeout(() => {
@@ -449,7 +450,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 try {
                     await tmpfile.write(randomBytes((1 << 20) * 11));
 
-                    const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key },
+                    const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, originalFileName,
                                                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } });
 
                     const { buffer: buffer_1 } = await tmpfile.read(Buffer.alloc(1 << 22), 0, 1 << 22, 1 << 22);
@@ -464,7 +465,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
                     const filePartUploaded = new Set<number>();
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11, originalFileName,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
                                                     recovered: {
@@ -513,7 +514,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     await tmpfile.write(randomBytes((1 << 10) * 11));
                     const uploader = new Uploader(qiniuAdapter);
                     let fileUploaded = 0;
-                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 10) * 11,
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 10) * 11, originalFileName,
                                                 {
                                                     header: { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' } },
                                                     putCallback: {

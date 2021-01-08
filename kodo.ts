@@ -232,7 +232,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    putObject(s3RegionId: string, object: Object, data: Buffer, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
+    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const form =  new FormData();
@@ -245,7 +245,9 @@ export class Kodo implements Adapter {
             }
             form.append('crc32', CRC32.unsigned(data));
 
-            const fileOption: FormData.AppendOptions = {};
+            const fileOption: FormData.AppendOptions = {
+                filename: originalFileName,
+            };
             if (header?.contentType) {
                 fileOption.contentType = header!.contentType;
             }
@@ -258,25 +260,6 @@ export class Kodo implements Adapter {
                 contentType: form.getHeaders()['content-type'],
                 form: form,
                 uploadProgress: progressCallback,
-            }).then(() => {
-                if (header?.contentType) {
-                    this.setObjectContentType(s3RegionId, object, header!.contentType).then(resolve, reject);
-                } else {
-                    resolve();
-                }
-            }, reject);
-        });
-    }
-
-    setObjectContentType(s3RegionId: string, object: Object, contentType: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.client.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `chgm/${encodeObject(object)}/mime/${urlSafeBase64(contentType)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }, reject);
         });
     }
@@ -680,7 +663,7 @@ export class Kodo implements Adapter {
         }, reject);
     }
 
-    createMultipartUpload(s3RegionId: string, object: Object, _header?: SetObjectHeader): Promise<InitPartsOutput> {
+    createMultipartUpload(s3RegionId: string, object: Object, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
@@ -721,7 +704,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
@@ -731,7 +714,7 @@ export class Kodo implements Adapter {
                     metadata[`x-qn-meta-${metaKey}`] = metaValue;
                 }
             }
-            const data: any = { parts: parts, metadata: metadata };
+            const data: any = { fname: originalFileName, parts: parts, metadata: metadata };
             if (header?.contentType) {
                 data.mimeType = header!.contentType;
             }

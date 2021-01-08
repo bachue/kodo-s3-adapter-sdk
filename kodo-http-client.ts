@@ -6,6 +6,7 @@ import { URL, URLSearchParams } from 'url';
 import { Region } from './region';
 import { generateAccessTokenV2 } from './kodo-auth';
 import { ReadableStreamBuffer } from 'stream-buffers';
+import { Throttle } from 'stream-throttle';
 
 export type HttpProtocol = "http" | "https";
 
@@ -33,6 +34,7 @@ export interface RequestOptions {
     contentType?: string;
     headers?: { [headerName: string]: string; },
     uploadProgress?: (uploaded: number, total: number) => void,
+    uploadThrottle?: Throttle,
 }
 
 export class KodoHttpClient {
@@ -86,7 +88,7 @@ export class KodoHttpClient {
         const data: any = options.data ?? options.form?.getBuffer();
         if (data) {
             if (options.uploadProgress) {
-                const stream = new ReadableStreamBuffer({ initialSize: data.length });
+                const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                 stream.put(data);
                 stream.stop();
                 let uploaded = 0;
@@ -95,7 +97,16 @@ export class KodoHttpClient {
                     uploaded += chunk.length;
                     options.uploadProgress!(uploaded, total);
                 });
-                requestOption.stream = stream;
+                if (options.uploadThrottle) {
+                    requestOption.stream = stream.pipe(options.uploadThrottle);
+                } else {
+                    requestOption.stream = stream;
+                }
+            } else if (options.uploadThrottle) {
+                const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
+                stream.put(data);
+                stream.stop();
+                requestOption.stream = stream.pipe(options.uploadThrottle);
             } else {
                 requestOption.data = data;
             }

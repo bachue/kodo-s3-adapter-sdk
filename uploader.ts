@@ -1,5 +1,6 @@
 import { Adapter, SetObjectHeader, Part, ProgressCallback, Object } from './adapter';
 import { FileHandle } from 'fs/promises';
+import { Throttle } from 'stream-throttle';
 
 export class Uploader {
     private aborted: boolean = false;
@@ -63,7 +64,7 @@ export class Uploader {
                 }
 
                 this.adapter.putObject(region, object, data.subarray(0, bytesRead), originalFileName,
-                                       putFileOption?.header, putFileOption?.putCallback?.progressCallback)
+                                       putFileOption?.header, putFileOption?.putCallback?.progressCallback, putFileOption?.uploadThrottle)
                             .then(resolve, reject);
             }, reject);
         });
@@ -118,7 +119,7 @@ export class Uploader {
                         };
                     }
                     this.adapter.uploadPart(region, object, recovered.uploadId, partNumber,
-                                            data!.subarray(0, bytesRead), progressCallback).then((output) => {
+                                            data!.subarray(0, bytesRead), progressCallback, putFileOption?.uploadThrottle).then((output) => {
                         data = undefined;
                         const part: Part = { etag: output.etag, partNumber: partNumber };
                         if (putFileOption?.putCallback?.partPutCallback) {
@@ -148,6 +149,7 @@ export interface PutFileOption {
     putCallback?: PutCallback;
     partSize?: number;
     uploadThreshold?: number;
+    uploadThrottle?: Throttle;
 }
 
 export interface RecoveredOption {

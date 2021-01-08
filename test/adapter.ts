@@ -9,6 +9,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
 import { Kodo } from '../kodo';
+import { Throttle } from 'stream-throttle';
 
 process.on('uncaughtException', (err: any, origin: any) => {
     fs.writeSync(
@@ -275,6 +276,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
+                const throttle = new Throttle({ rate: 1 << 30 });
                 let loaded = 0;
                 await qiniuAdapter.putObject(
                     bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
@@ -282,7 +284,8 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     (uploaded: number, total: number) => {
                         expect(total).to.at.least(buffer.length);
                         loaded = uploaded;
-                    });
+                    },
+                    throttle);
                 expect(loaded).to.at.least(buffer.length);
 
                 let isExisted: boolean = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
@@ -335,6 +338,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
                 const setHeader = { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' };
+                const throttle = new Throttle({ rate: 1 << 30 });
 
                 const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, originalFileName, setHeader);
 
@@ -344,7 +348,8 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                 createResult.uploadId, 1, buffer_1, (uploaded: number, total: number) => {
                                                     expect(total).to.equal(buffer_1.length);
                                                     loaded = uploaded;
-                                                });
+                                                },
+                                                throttle);
                 expect(loaded).to.equal(buffer_1.length);
 
                 const buffer_2 = randomBytes(1 << 20);
@@ -374,6 +379,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const key = `11m-${Math.floor(Math.random() * (2**64 -1))}`;
                 const tmpfilePath = tempfile();
+                const throttle = new Throttle({ rate: 1 << 30 });
 
                 const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
                 try {
@@ -397,6 +403,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                             filePartUploaded.add(part.partNumber);
                                                         },
                                                     },
+                                                    uploadThrottle: throttle,
                                                 });
                     expect(fileUploaded).to.equal((1 << 20) * 11);
                     expect(filePartUploaded).to.have.lengthOf(3);

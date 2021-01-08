@@ -9,6 +9,7 @@ import { Semaphore } from 'semaphore-promise';
 import { RegionService } from './region_service';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
+import { Throttle } from 'stream-throttle';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption,
          InitPartsOutput, UploadPartOutput, StorageClass, Part, ProgressCallback } from './adapter';
@@ -254,15 +255,25 @@ export class S3 implements Adapter {
         });
     }
 
-    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
+    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
+              header?: SetObjectHeader, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
                 if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
-                    const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    dataSource = reader;
+                    if (throttle) {
+                        dataSource = reader.pipe(throttle);
+                    } else {
+                        dataSource = reader;
+                    }
+                } else if (throttle) {
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
+                    reader.put(data);
+                    reader.stop();
+                    dataSource = reader.pipe(throttle);
                 } else {
                     dataSource = data;
                 }
@@ -343,8 +354,14 @@ export class S3 implements Adapter {
     moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
         return new Promise((resolve, reject) => {
             this.copyObject(s3RegionId, transferObject).then(() => {
-                this.deleteObject(s3RegionId, transferObject.from).then(resolve, reject);
-            }, reject);
+                this.deleteObject(s3RegionId, transferObject.from).then(resolve, (err) => {
+                    err.stage = 'delete';
+                    reject(err);
+                });
+            }, (err) => {
+                err.stage = 'copy';
+                reject(err);
+            });
         });
     }
 
@@ -656,15 +673,25 @@ export class S3 implements Adapter {
         });
     }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number,
+               data: Buffer, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
                 if (this.adapterOption.ucUrl?.startsWith("https://") ?? true) {
-                    const reader = new ReadableStreamBuffer({ initialSize: data.length });
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     reader.put(data);
                     reader.stop();
-                    dataSource = reader;
+                    if (throttle) {
+                        dataSource = reader.pipe(throttle);
+                    } else {
+                        dataSource = reader;
+                    }
+                } else if (throttle) {
+                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
+                    reader.put(data);
+                    reader.stop();
+                    dataSource = reader.pipe(throttle);
                 } else {
                     dataSource = data;
                 }

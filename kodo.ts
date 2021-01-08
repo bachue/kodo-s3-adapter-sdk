@@ -4,6 +4,7 @@ import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
+import { Throttle } from 'stream-throttle';
 import { Semaphore } from 'semaphore-promise';
 import { RegionService } from './region_service';
 import { URL, URLSearchParams } from 'url';
@@ -232,7 +233,8 @@ export class Kodo implements Adapter {
         });
     }
 
-    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void> {
+    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
+              header?: SetObjectHeader, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const form =  new FormData();
@@ -260,6 +262,7 @@ export class Kodo implements Adapter {
                 contentType: form.getHeaders()['content-type'],
                 form: form,
                 uploadProgress: progressCallback,
+                uploadThrottle: throttle,
             }).then(() => { resolve(); }, reject);
         });
     }
@@ -681,7 +684,8 @@ export class Kodo implements Adapter {
         });
     }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number,
+               data: Buffer, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
@@ -698,6 +702,7 @@ export class Kodo implements Adapter {
                     'content-md5': md5.hex(data),
                 },
                 uploadProgress: progressCallback,
+                uploadThrottle: throttle,
             }).then((response) => {
                 resolve({ etag: response.data.etag });
             }, reject);

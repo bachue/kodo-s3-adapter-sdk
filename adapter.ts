@@ -1,5 +1,6 @@
 import { Region } from './region';
 import { URL } from 'url';
+import { Throttle } from 'stream-throttle';
 
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
@@ -22,11 +23,12 @@ export abstract class Adapter {
     abstract getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader>;
     abstract getObject(region: string, object: Object, domain?: Domain): Promise<ObjectGetResult>;
     abstract getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL>;
-    abstract putObject(region: string, object: Object, data: Buffer, originalFileName: string, header?: SetObjectHeader, progressCallback?: ProgressCallback): Promise<void>;
+    abstract putObject(region: string, object: Object, data: Buffer, originalFileName: string,
+                       header?: SetObjectHeader, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<void>;
 
     abstract createMultipartUpload(region: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput>;
     abstract uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
-                       data: Buffer, progressCallback?: ProgressCallback): Promise<UploadPartOutput>;
+                       data: Buffer, progressCallback?: ProgressCallback, throttle?: Throttle): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;

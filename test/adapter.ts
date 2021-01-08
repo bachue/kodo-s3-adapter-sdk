@@ -9,7 +9,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
 import { Kodo } from '../kodo';
-import { Throttle } from 'stream-throttle';
+import { Throttle, ThrottleGroup } from 'stream-throttle';
 
 process.on('uncaughtException', (err: any, origin: any) => {
     fs.writeSync(
@@ -353,8 +353,8 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
-                const buffer = randomBytes((1 << 20) * 64);
-                const key = `64m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const buffer = randomBytes((1 << 20) * 16);
+                const key = `16m-${Math.floor(Math.random() * (2**64 -1))}`;
                 await qiniuAdapter.putObject(
                     bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
                     { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
@@ -366,7 +366,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                         dataLength += chunk.length;
                     });
                     readable.on('end', () => {
-                        expect(dataLength).to.equal((1 << 20) * 64);
+                        expect(dataLength).to.equal((1 << 20) * 16);
                         resolve();
                     });
                     readable.on('error', reject);
@@ -379,7 +379,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const key = `2m-${Math.floor(Math.random() * (2**64 -1))}`;
                 const setHeader = { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' };
-                const throttle = new Throttle({ rate: 1 << 30 });
+                const throttleGroup = new ThrottleGroup({ rate: 1 << 30 });
 
                 const createResult = await qiniuAdapter.createMultipartUpload(bucketRegionId, { bucket: bucketName, key: key }, originalFileName, setHeader);
 
@@ -391,7 +391,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                         expect(total).to.equal(buffer_1.length);
                                                         loaded = uploaded;
                                                     },
-                                                    throttle: throttle,
+                                                    throttle: throttleGroup.throttle({ rate: 1 << 30 }),
                                                 });
                 expect(loaded).to.equal(buffer_1.length);
 
@@ -403,7 +403,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                                         expect(total).to.equal(buffer_2.length);
                                                         loaded = uploaded;
                                                     },
-                                                    throttle: throttle,
+                                                    throttle: throttleGroup.throttle({ rate: 1 << 30 }),
                                                 });
                 expect(loaded).to.equal(buffer_2.length);
 

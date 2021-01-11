@@ -293,7 +293,7 @@ export class Kodo implements Adapter {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
                 const headers: http.IncomingHttpHeaders = {};
                 if (option?.rangeStart || option?.rangeEnd) {
-                    headers['Range'] = `bytes=${option?.rangeStart}-${option?.rangeEnd}`;
+                    headers['Range'] = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
                 }
 
                 Kodo.httpClient.request(url.toString(), {

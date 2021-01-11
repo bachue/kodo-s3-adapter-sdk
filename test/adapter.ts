@@ -2,12 +2,14 @@ import process from 'process';
 import urllib from 'urllib';
 import tempfile from 'tempfile';
 import fs from 'fs';
+import md5 from 'md5';
 import { Semaphore } from 'semaphore-promise';
 import { randomBytes } from 'crypto';
 import { expect, assert } from 'chai';
 import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
+import { Downloader } from '../downloader';
 import { Kodo } from '../kodo';
 import { Throttle, ThrottleGroup } from 'stream-throttle';
 
@@ -434,10 +436,29 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 expect(header.metadata['key-b']).to.equal('Value-B');
                 expect(header.contentType).to.equal('application/json');
 
+                {
+                    const downloader = new Downloader(qiniuAdapter);
+                    const targetFilePath = tempfile();
+                    let fileDownloaded = 0;
+
+                    await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                        getCallback: {
+                            progressCallback: (downloaded, total) => {
+                                expect(total).to.equal((1 << 20) * 2);
+                                fileDownloaded = downloaded;
+                            },
+                        },
+                        partSize: 1 << 20,
+                        chunkTimeout: 3000,
+                        downloadThrottleOption: { rate: 1 << 30 },
+                    });
+                    expect(fileDownloaded).to.equal((1 << 20) * 2);
+                }
+
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
 
-            it('upload object by uploader', async () => {
+            it('upload object by uploader and download by downloader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
 
@@ -471,13 +492,56 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(fileUploaded).to.equal((1 << 20) * 11);
                     expect(filePartUploaded).to.have.lengthOf(3);
 
-                    const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
-                    expect(isExisted).to.equal(true);
+                    {
+                        const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                        expect(isExisted).to.equal(true);
+                    }
 
-                    const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
-                    expect(header.metadata['key-a']).to.equal('Value-A');
-                    expect(header.metadata['key-b']).to.equal('Value-B');
-                    expect(header.contentType).to.equal('application/json');
+                    {
+                        const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
+                        expect(header.metadata['key-a']).to.equal('Value-A');
+                        expect(header.metadata['key-b']).to.equal('Value-B');
+                        expect(header.contentType).to.equal('application/json');
+                    }
+
+                    {
+                        const downloader = new Downloader(qiniuAdapter);
+                        const targetFilePath = tempfile();
+                        let fileDownloaded = 0;
+
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                progressCallback: (downloaded, total) => {
+                                    expect(total).to.equal((1 << 20) * 11);
+                                    fileDownloaded = downloaded;
+                                },
+                            },
+                            partSize: 1 << 20,
+                            chunkTimeout: 3000,
+                        });
+                        expect(fileDownloaded).to.equal((1 << 20) * 11);
+
+                        const md5FromSource = await new Promise((resolve, reject) => {
+                            fs.readFile(tmpfilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+                        });
+                        const md5FromObject = await new Promise((resolve, reject) => {
+                            fs.readFile(targetFilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+
+                        });
+                        expect(md5FromSource).to.eql(md5FromObject);
+                    }
 
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 } finally {
@@ -566,6 +630,45 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
 
+                    {
+                        const downloader = new Downloader(qiniuAdapter);
+                        const targetFilePath = tempfile();
+                        let fileDownloaded = 0;
+
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                progressCallback: (downloaded, total) => {
+                                    expect(total).to.equal((1 << 20) * 11);
+                                    fileDownloaded = downloaded;
+                                },
+                            },
+                            partSize: 1 << 20,
+                            chunkTimeout: 3000,
+                        });
+                        expect(fileDownloaded).to.equal((1 << 20) * 11);
+
+                        const md5FromSource = await new Promise((resolve, reject) => {
+                            fs.readFile(tmpfilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+                        });
+                        const md5FromObject = await new Promise((resolve, reject) => {
+                            fs.readFile(targetFilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+
+                        });
+                        expect(md5FromSource).to.eql(md5FromObject);
+                    }
+
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 } finally {
                     await tmpfile.close();
@@ -599,6 +702,45 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                     expect(header.metadata['key-a']).to.equal('Value-A');
                     expect(header.metadata['key-b']).to.equal('Value-B');
+
+                    {
+                        const downloader = new Downloader(qiniuAdapter);
+                        const targetFilePath = tempfile();
+                        let fileDownloaded = 0;
+
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                progressCallback: (downloaded, total) => {
+                                    expect(total).to.equal((1 << 10) * 11);
+                                    fileDownloaded = downloaded;
+                                },
+                            },
+                            partSize: 1 << 10,
+                            chunkTimeout: 3000,
+                        });
+                        expect(fileDownloaded).to.equal((1 << 10) * 11);
+
+                        const md5FromSource = await new Promise((resolve, reject) => {
+                            fs.readFile(tmpfilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+                        });
+                        const md5FromObject = await new Promise((resolve, reject) => {
+                            fs.readFile(targetFilePath, { encoding: 'binary' }, (err, buf) => {
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                                resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                            });
+
+                        });
+                        expect(md5FromSource).to.eql(md5FromObject);
+                    }
 
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 } finally {

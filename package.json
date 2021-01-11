@@ -35,8 +35,10 @@
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
+    "@types/md5": "^2.2.1",
     "@types/mocha": "^8.0.4",
     "chai": "^4.2.0",
+    "md5": "^2.3.0",
     "mocha": "^8.2.1",
     "tempfile": "^3.0.0",
     "ts-node": "^9.0.0"

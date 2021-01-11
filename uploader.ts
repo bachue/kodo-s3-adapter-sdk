@@ -13,6 +13,7 @@ export class Uploader {
         this.aborted = false;
 
         return new Promise((resolve, reject) => {
+            console.log('*** putObjectFromFile 1');
             if (this.aborted) {
                 reject(Uploader.userCanceledError);
                 return;
@@ -21,11 +22,14 @@ export class Uploader {
             const partsCount = partsCountOfFile(fileSize, partSize);
 
             if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
+                console.log('*** putObjectFromFile 2');
                 this.putObject(region, object, file, fileSize, originalFileName, putFileOption).then(resolve, reject);
                 return;
             }
 
+            console.log('*** putObjectFromFile 3');
             this.initParts(region, object, originalFileName, putFileOption).then((recovered) => {
+                console.log('*** putObjectFromFile 4');
                 if (this.aborted) {
                     reject(Uploader.userCanceledError);
                     return;
@@ -36,6 +40,7 @@ export class Uploader {
                 }
 
                 const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
+                console.log('*** putObjectFromFile 5');
                 this.uploadParts(region, object, file, fileSize, uploaded, recovered, 1, partsCount, partSize, putFileOption || {}).then(() => {
                     if (this.aborted) {
                         reject(Uploader.userCanceledError);
@@ -97,7 +102,9 @@ export class Uploader {
     private uploadParts(region: string, object: Object, file: FileHandle, fileSize: number, uploaded: number, recovered: RecoveredOption,
                         partNumber: number, partsCount: number, partSize: number, putFileOption: PutFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
+            console.log('*** uploadParts 1');
             if (partNumber > partsCount) {
+                console.log('*** uploadParts 2');
                 resolve();
                 return;
             }
@@ -106,19 +113,24 @@ export class Uploader {
                 reject(Uploader.userCanceledError);
                 return;
             }
+            console.log('*** uploadParts 3');
 
             if (findPartsByNumber(recovered.parts, partNumber)) {
+                console.log('*** uploadParts 4');
                 this.uploadParts(region, object, file, fileSize, uploaded, recovered,
                                  partNumber + 1, partsCount, partSize, putFileOption)
                     .then(resolve, reject);
             } else {
+                console.log('*** uploadParts 5');
                 let data: Buffer | undefined = Buffer.alloc(partSize);
                 file.read(data, 0, partSize, partSize * (partNumber - 1)).then(({ bytesRead }) => {
+                    console.log('*** uploadParts 6');
                     if (this.aborted) {
                         reject(Uploader.userCanceledError);
                         return;
                     }
 
+                    console.log('*** uploadParts 7');
                     const makeThrottle = (): Throttle | undefined => {
                         if (putFileOption.uploadThrottleOption) {
                             if (!putFileOption.uploadThrottleGroup) {
@@ -135,11 +147,13 @@ export class Uploader {
                             putFileOption.putCallback!.progressCallback!(uploaded + partUploaded, fileSize);
                         };
                     }
+                    console.log('*** uploadParts 8');
                     this.adapter.uploadPart(region, object, recovered.uploadId, partNumber,
                                             data!.subarray(0, bytesRead), {
                                                 progressCallback: progressCallback,
                                                 throttle: makeThrottle(),
                                             }).then((output) => {
+                        console.log('*** uploadParts 9');
                         data = undefined;
                         const part: Part = { etag: output.etag, partNumber: partNumber };
                         if (putFileOption?.putCallback?.partPutCallback) {

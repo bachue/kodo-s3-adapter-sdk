@@ -268,11 +268,6 @@ export class S3 implements Adapter {
                     } else {
                         dataSource = reader;
                     }
-                } else if (option?.throttle) {
-                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    reader.put(data);
-                    reader.stop();
-                    dataSource = reader.pipe(option.throttle);
                 } else {
                     dataSource = data;
                 }
@@ -326,7 +321,7 @@ export class S3 implements Adapter {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let range: string | undefined = undefined;
                 if (option?.rangeStart || option?.rangeEnd) {
-                    range = `bytes=${option?.rangeStart}-${option?.rangeEnd}`;
+                    range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
                 }
 
                 resolve(s3.getObject({ Bucket: bucketId, Key: object.key, Range: range }).createReadStream());
@@ -698,11 +693,6 @@ export class S3 implements Adapter {
                     } else {
                         dataSource = reader;
                     }
-                } else if (option?.throttle) {
-                    const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    reader.put(data);
-                    reader.stop();
-                    dataSource = reader.pipe(option.throttle);
                 } else {
                     dataSource = data;
                 }

@@ -18,9 +18,13 @@ export class Downloader {
 
         return new Promise((resolve, reject) => {
             this.adapter.getObjectHeader(region, object, domain).then((header) => {
-                if (getFileOption?.recovered) {
+                if (getFileOption?.recoveredFrom) {
                     fsPromises.stat(filePath).then((stat) => {
-                        this.getObjectToFilePath(region, object, filePath, stat.size, header.size, 0, domain, getFileOption).then(resolve, reject);
+                        let recoveredFrom = stat.size;
+                        if (typeof(getFileOption.recoveredFrom) === 'number') {
+                            recoveredFrom = getFileOption.recoveredFrom > stat.size ? stat.size : getFileOption.recoveredFrom;
+                        }
+                        this.getObjectToFilePath(region, object, filePath, recoveredFrom, header.size, 0, domain, getFileOption).then(resolve, reject);
                     }, reject);
                 } else {
                     this.getObjectToFilePath(region, object, filePath, 0, header.size, 0, domain, getFileOption).then(resolve, reject);
@@ -149,7 +153,7 @@ export interface GetCallback {
 }
 
 export interface GetFileOption {
-    recovered?: boolean,
+    recoveredFrom?: number | boolean,
     getCallback?: GetCallback;
     partSize?: number;
     chunkTimeout?: number;

@@ -574,6 +574,118 @@ process.on('uncaughtException', (err: any, origin: any) => {
                             uploader.abort();
                         }, 1000);
                     });
+
+                    try {
+                        await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100, originalFileName, {
+                                                            putCallback: {
+                                                                progressCallback: (_uploaded, _total) => {
+                                                                    throw new Error('Test Error 1');
+                                                                },
+                                                            },
+                                                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 1');
+                    }
+
+                    try {
+                        await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100, originalFileName, {
+                                                            putCallback: {
+                                                                partsInitCallback: (_initInfo) => {
+                                                                    throw new Error('Test Error 2');
+                                                                },
+                                                            },
+                                                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 2');
+                    }
+
+                    try {
+                        await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 100, originalFileName, {
+                                                            putCallback: {
+                                                                partPutCallback: (_part) => {
+                                                                    throw new Error('Test Error 3');
+                                                                },
+                                                            },
+                                                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 3');
+                    }
+                } finally {
+                    await tmpfile.close();
+                }
+            });
+
+            it('download object and then cancel', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const key = `11m-${Math.floor(Math.random() * (2**64 -1))}`;
+                const tmpfilePath = tempfile();
+
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w+');
+                try {
+                    await tmpfile.write(randomBytes((1 << 20) * 11));
+                    const uploader = new Uploader(qiniuAdapter);
+                    await uploader.putObjectFromFile(bucketRegionId, { bucket: bucketName, key: key }, tmpfile, (1 << 20) * 11, originalFileName);
+
+                    const downloader = new Downloader(qiniuAdapter);
+                    const targetFilePath = tempfile();
+
+                    const promise = downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined,
+                                                               {
+                                                                   partSize: 1 << 20,
+                                                               });
+                    await new Promise((resolve, reject) => {
+                        setTimeout(() => {
+                            promise.then(reject, resolve);
+                            downloader.abort();
+                        }, 1000);
+                    });
+
+                    try {
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                progressCallback: (_downloaded, _total) => {
+                                    throw new Error('Test Error 4');
+                                },
+                            },
+                            partSize: 1 << 20,
+                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 4');
+                    }
+
+                    try {
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                headerCallback: (_header) => {
+                                    throw new Error('Test Error 5');
+                                },
+                            },
+                            partSize: 1 << 20,
+                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 5');
+                    }
+
+                    try {
+                        await downloader.getObjectToFile(bucketRegionId, { bucket: bucketName, key: key }, targetFilePath, undefined, {
+                            getCallback: {
+                                partGetCallback: (_partSize) => {
+                                    throw new Error('Test Error 6');
+                                },
+                            },
+                            partSize: 1 << 20,
+                        });
+                        assert.fail();
+                    } catch (err) {
+                        expect(err.message).to.include('Test Error 6');
+                    }
                 } finally {
                     await tmpfile.close();
                 }

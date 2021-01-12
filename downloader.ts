@@ -19,7 +19,12 @@ export class Downloader {
         return new Promise((resolve, reject) => {
             this.adapter.getObjectHeader(region, object, domain).then((header) => {
                 if (getFileOption?.getCallback?.headerCallback) {
-                    getFileOption.getCallback.headerCallback(header);
+                    try {
+                        getFileOption.getCallback.headerCallback(header);
+                    } catch (err) {
+                        reject(err);
+                        return;
+                    }
                 }
                 if (getFileOption?.recoveredFrom) {
                     fsPromises.stat(filePath).then((stat) => {
@@ -48,7 +53,7 @@ export class Downloader {
                 const receivedDataBytes: number = getResult.downloaded;
                 const err: Error | undefined = getResult.error;
                 if (this.aborted) {
-                    reject(err);
+                    reject(err ?? Downloader.userCanceledError);
                 } else if (receivedDataBytes === totalObjectSize) {
                     resolve();
                 } else if (receivedDataBytes > offset) {
@@ -87,7 +92,11 @@ export class Downloader {
                 let tid: number | undefined = undefined;
                 let chain: Readable | Writable = reader.on('data', (chunk) => {
                     if (this.aborted) {
+                        if (!reader.destroyed) {
+                            reader.destroy(Downloader.userCanceledError);
+                        }
                         reject(Downloader.userCanceledError);
+                        this.abort();
                         return;
                     }
 
@@ -98,23 +107,47 @@ export class Downloader {
                             tid = undefined;
                         }
                         tid = <any>setTimeout(() => {
+                            const timeoutErr = new Error('Timeout');
                             if (!reader.destroyed) {
-                                reader.destroy(new Error('Timeout'));
+                                reader.destroy(timeoutErr);
                             }
                         }, getFileOption.chunkTimeout);
                     }
                     if (getFileOption?.getCallback?.progressCallback) {
-                        getFileOption.getCallback.progressCallback(receivedDataBytes, totalObjectSize);
+                        try {
+                            getFileOption.getCallback.progressCallback(receivedDataBytes, totalObjectSize);
+                        } catch (err) {
+                            if (!reader.destroyed) {
+                                reader.destroy(err);
+                            }
+                            if (!this.aborted) {
+                                this.abort();
+                                reject(err);
+                            }
+                            return;
+                        }
                     }
                     if (getFileOption?.partSize && getFileOption?.getCallback?.partGetCallback) {
                         thisPartSize += chunk.length;
                         if (thisPartSize > getFileOption.partSize) {
-                            getFileOption.getCallback.partGetCallback(thisPartSize);
+                            try {
+                                getFileOption.getCallback.partGetCallback(thisPartSize);
+                            } catch (err) {
+                                if (!reader.destroyed) {
+                                    reader.destroy(err);
+                                }
+                                if (!this.aborted) {
+                                    this.abort();
+                                    reject(err);
+                                }
+                                return;
+                            }
                             thisPartSize = 0;
                         }
                     }
                 }).on('error', (err) => {
                     if (this.aborted) {
+                        reject(err);
                         return;
                     }
                     resolve({ downloaded: receivedDataBytes, error: err });
@@ -125,11 +158,13 @@ export class Downloader {
                 }
                 chain.pipe(fileWriteStream).on('error', (err) => {
                     if (this.aborted) {
+                        reject(err);
                         return;
                     }
                     resolve({ downloaded: receivedDataBytes, error: err });
                 }).on('finish', () => {
                     if (this.aborted) {
+                        reject(Downloader.userCanceledError);
                         return;
                     }
                     resolve({ downloaded: receivedDataBytes });

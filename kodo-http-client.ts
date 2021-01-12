@@ -86,6 +86,7 @@ export class KodoHttpClient {
             isRetry: this.isRetry,
         };
         const data: any = options.data ?? options.form?.getBuffer();
+        let callbackError: Error | undefined = undefined;
         if (data) {
             if (options.uploadProgress) {
                 const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
@@ -95,7 +96,15 @@ export class KodoHttpClient {
                 let total = data.length;
                 stream.on('data', (chunk) => {
                     uploaded += chunk.length;
-                    options.uploadProgress!(uploaded, total);
+                    try {
+                        options.uploadProgress!(uploaded, total);
+                    } catch (err) {
+                        if (!stream.destroyed) {
+                            stream.destroy(err);
+                        }
+                        callbackError = err;
+                        reject(err);
+                    }
                 });
                 if (options.uploadThrottle) {
                     requestOption.stream = stream.pipe(options.uploadThrottle);
@@ -113,7 +122,9 @@ export class KodoHttpClient {
         }
 
         KodoHttpClient.httpClient.request(url, requestOption).then((response) => {
-            if (response.status >= 200 && response.status < 400) {
+            if (callbackError) {
+                return;
+            } else if (response.status >= 200 && response.status < 400) {
                 resolve(response);
             } else if (urls.length > 0) {
                 this.callForOneUrl(urls, options, resolve, reject);
@@ -132,7 +143,9 @@ export class KodoHttpClient {
                 }
             }
         }).catch((err) => {
-            if (urls.length > 0) {
+            if (callbackError) {
+                return;
+            } else if (urls.length > 0) {
                 this.callForOneUrl(urls, options, resolve, reject);
             } else {
                 reject(err);

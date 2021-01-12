@@ -32,7 +32,12 @@ export class Uploader {
                 }
 
                 if (putFileOption?.putCallback?.partsInitCallback) {
-                    putFileOption.putCallback.partsInitCallback(recovered);
+                    try {
+                        putFileOption.putCallback.partsInitCallback(recovered);
+                    } catch (err) {
+                        reject(err);
+                        return;
+                    }
                 }
 
                 const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
@@ -143,7 +148,12 @@ export class Uploader {
                         data = undefined;
                         const part: Part = { etag: output.etag, partNumber: partNumber };
                         if (putFileOption?.putCallback?.partPutCallback) {
-                            putFileOption.putCallback.partPutCallback(part);
+                            try {
+                                putFileOption.putCallback.partPutCallback(part);
+                            } catch (err) {
+                                reject(err);
+                                return;
+                            }
                         }
                         recovered.parts.push(part);
                         uploaded += bytesRead;

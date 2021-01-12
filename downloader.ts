@@ -1,4 +1,4 @@
-import { Adapter, Object, Domain, ProgressCallback } from './adapter';
+import { Adapter, Object, Domain, ProgressCallback, ObjectHeader } from './adapter';
 import { Readable, Writable } from 'stream';
 import { createWriteStream, WriteStream, constants as fsConstants } from 'fs';
 import { promises as fsPromises } from 'fs';
@@ -18,6 +18,9 @@ export class Downloader {
 
         return new Promise((resolve, reject) => {
             this.adapter.getObjectHeader(region, object, domain).then((header) => {
+                if (getFileOption?.getCallback?.headerCallback) {
+                    getFileOption.getCallback.headerCallback(header);
+                }
                 if (getFileOption?.recoveredFrom) {
                     fsPromises.stat(filePath).then((stat) => {
                         let recoveredFrom = stat.size;
@@ -149,6 +152,7 @@ interface GetResult {
 
 export interface GetCallback {
     progressCallback?: ProgressCallback;
+    headerCallback?: (header: ObjectHeader) => void;
     partGetCallback?: (partSize: number) => void;
 }
 

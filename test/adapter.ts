@@ -447,6 +447,9 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 expect(total).to.equal((1 << 20) * 2);
                                 fileDownloaded = downloaded;
                             },
+                            headerCallback: (header) => {
+                                expect(header.size).to.equal((1 << 20) * 2);
+                            },
                         },
                         partSize: 1 << 20,
                         chunkTimeout: 3000,
@@ -514,6 +517,9 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 progressCallback: (downloaded, total) => {
                                     expect(total).to.equal((1 << 20) * 11);
                                     fileDownloaded = downloaded;
+                                },
+                                headerCallback: (header) => {
+                                    expect(header.size).to.equal((1 << 20) * 11);
                                 },
                             },
                             partSize: 1 << 20,
@@ -641,6 +647,9 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                     expect(total).to.equal((1 << 20) * 11);
                                     fileDownloaded = downloaded;
                                 },
+                                headerCallback: (header) => {
+                                    expect(header.size).to.equal((1 << 20) * 11);
+                                },
                             },
                             partSize: 1 << 20,
                             chunkTimeout: 3000,
@@ -713,6 +722,9 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 progressCallback: (downloaded, total) => {
                                     expect(total).to.equal((1 << 10) * 11);
                                     fileDownloaded = downloaded;
+                                },
+                                headerCallback: (header) => {
+                                    expect(header.size).to.equal((1 << 10) * 11);
                                 },
                             },
                             partSize: 1 << 10,

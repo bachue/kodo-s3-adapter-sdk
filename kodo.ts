@@ -655,6 +655,8 @@ export class Kodo implements Adapter {
             contentType: 'application/x-www-form-urlencoded',
         }).then((response) => {
             let isEmpty = true;
+            delete results.nextContinuationToken;
+
             if (response.data.items && response.data.items.length > 0) {
                 isEmpty = false;
                 results.objects = results.objects.concat(response.data.items.map((item: any) => {
@@ -675,6 +677,7 @@ export class Kodo implements Adapter {
             }
             if (!isEmpty && response.data.marker) {
                 newOption.nextContinuationToken = response.data.marker;
+                results.nextContinuationToken = response.data.marker;
                 if (option?.minKeys) {
                     let resultsSize = results.objects.length;
                     if (results.commonPrefixes) {

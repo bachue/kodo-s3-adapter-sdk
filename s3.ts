@@ -620,6 +620,7 @@ export class S3 implements Adapter {
                 reject(err);
             } else {
                 let isEmpty = true;
+                delete results.nextContinuationToken;
                 if (data.Contents && data.Contents.length > 0) {
                     isEmpty = false;
                     results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
@@ -640,6 +641,7 @@ export class S3 implements Adapter {
                 }
                 if (!isEmpty && data.NextMarker) {
                     newOption.nextContinuationToken = data.NextMarker;
+                    results.nextContinuationToken = data.NextMarker;
                     if (option?.minKeys) {
                         let resultsSize = results.objects.length;
                         if (results.commonPrefixes) {

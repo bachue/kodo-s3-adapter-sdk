@@ -174,7 +174,7 @@ export class Kodo implements Adapter {
 
             this.bucketDomainsCacheLock.acquire(bucket, (): Promise<Array<Domain>> => {
                 if (this.bucketDomainsCache[bucket]) {
-                    return new Promise((resolve) => { resolve(this.bucketDomainsCache[bucket]); });
+                    return Promise.resolve(this.bucketDomainsCache[bucket]);
                 }
                 return this.listDomains(s3RegionId, bucket);
             }).then((domains: Array<Domain>) => {

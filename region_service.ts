@@ -23,7 +23,7 @@ export class RegionService {
             } else {
                 this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
                     if (this.allRegions && this.allRegions.length > 0) {
-                        return new Promise((resolve) => { resolve(this.allRegions); });
+                        return Promise.resolve(this.allRegions);
                     }
                     return Region.getAll({
                         accessKey: this.adapterOption.accessKey,

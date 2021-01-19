@@ -94,7 +94,7 @@ export class S3 implements Adapter {
                 if (this.bucketNameToIdCache[bucketName]) {
                     resolve(this.bucketNameToIdCache[bucketName]);
                 } else {
-                    reject(new Error(`Cannot find bucket id of bucket ${bucketName}`));
+                    resolve(bucketName);
                 }
             }, reject);
         });
@@ -221,7 +221,7 @@ export class S3 implements Adapter {
     }
 
     listDomains(_s3RegionId: string, _bucket: string): Promise<Array<Domain>> {
-        return new Promise((resolve) => { resolve([]); });
+        return Promise.resolve([]);
     }
 
     isExists(s3RegionId: string, object: Object): Promise<boolean> {

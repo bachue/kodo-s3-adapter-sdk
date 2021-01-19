@@ -213,7 +213,7 @@ export class KodoHttpClient {
             }
             this.regionsCacheLock.acquire(key, (): Promise<Region> => {
                 if (this.regionsCache[key]) {
-                    return new Promise((resolve) => { resolve(this.regionsCache[key]); });
+                    return Promise.resolve(this.regionsCache[key]);
                 } else if (bucketName) {
                     return Region.query({
                         bucketName,

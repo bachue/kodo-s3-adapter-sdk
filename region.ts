@@ -107,6 +107,10 @@ export class Region {
         const region: Region = new Region(r.region ?? r.id, r.s3.region_alias, r.description);
         const domain2Url = (domain: string) => {
             const url = new URL(ucUrl);
+            url.port = '';
+            url.pathname = '';
+            url.search = '';
+            url.hash = '';
             url.host = domain;
             return url.toString();
         };

@@ -424,12 +424,11 @@ export class S3 implements Adapter {
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
                         }, (err) => {
-                            const error = new Error(err);
-                            if (callback && callback(index, error) === false) {
+                            if (callback && callback(index, err) === false) {
                                 reject(new Error('aborted'));
                                 return;
                             }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: err });
                         }).finally(() => {
                             release();
                         });
@@ -453,12 +452,11 @@ export class S3 implements Adapter {
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
                         }, (err) => {
-                            const error = new Error(err);
-                            if (callback && callback(index, error) === false) {
+                            if (callback && callback(index, err) === false) {
                                 reject(new Error('aborted'));
                                 return;
                             }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: error });
+                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: err });
                         }).finally(() => {
                             release();
                         });

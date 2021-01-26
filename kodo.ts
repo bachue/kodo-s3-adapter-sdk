@@ -138,6 +138,9 @@ export class Kodo implements Adapter {
             const getBucketInfoQuery = new URLSearchParams();
             getBucketInfoQuery.set('bucket', bucket);
 
+            const bucketDefaultDomainQuery = new URLSearchParams();
+            bucketDefaultDomainQuery.set('bucket', bucket);
+
             const promises = [
                 this.client.call({
                     method: 'GET',
@@ -155,25 +158,40 @@ export class Kodo implements Adapter {
                     dataType: 'json',
                     s3RegionId: s3RegionId,
                 }),
+                this.client.call({
+                    method: 'GET',
+                    serviceName: ServiceName.Portal,
+                    path: 'api/kodov2/domain/default/get',
+                    query: bucketDefaultDomainQuery,
+                    dataType: 'json',
+                    s3RegionId: s3RegionId,
+                }),
             ];
 
-            Promise.all(promises).then(([domainResponse, bucketResponse]) => {
-                const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
-                    switch (domain.type) {
-                    case 'normal':
-                    case 'pan':
-                    case 'test':
-                        return true;
-                    default:
-                        return false;
-                    }
-                }).map((domain: any) => {
-                    return {
-                        name: domain.name, protocol: domain.protocol, type: domain.type,
-                        private: bucketResponse.data.private != 0,
-                    };
-                });
-                resolve(domains);
+            Promise.all(promises).then(([domainResponse, bucketResponse, defaultDomainQuery]) => {
+                if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
+                    resolve([{
+                        name: defaultDomainQuery.data.domain, protocol: defaultDomainQuery.data.protocol,
+                        type: 'normal', private: bucketResponse.data.private != 0,
+                    }]);
+                } else {
+                    const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
+                        switch (domain.type) {
+                        case 'normal':
+                        case 'pan':
+                        case 'test':
+                            return true;
+                        default:
+                            return false;
+                        }
+                    }).map((domain: any) => {
+                        return {
+                            name: domain.name, protocol: domain.protocol, type: domain.type,
+                            private: bucketResponse.data.private != 0,
+                        };
+                    });
+                    resolve(domains);
+                }
             }, reject);
         });
     }

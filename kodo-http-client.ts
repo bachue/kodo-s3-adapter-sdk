@@ -265,6 +265,8 @@ export class KodoHttpClient {
             return [...region.apiUrls];
         case ServiceName.S3:
             return [...region.s3Urls];
+        case ServiceName.Portal:
+            return ['https://portal.qiniu.com'];
         }
     }
 }
@@ -276,5 +278,6 @@ export enum ServiceName {
     Rsf,
     Api,
     S3,
+    Portal,
 }
 

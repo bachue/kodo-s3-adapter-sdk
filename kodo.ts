@@ -170,10 +170,15 @@ export class Kodo implements Adapter {
 
             Promise.all(promises).then(([domainResponse, bucketResponse, defaultDomainQuery]) => {
                 if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
-                    resolve([{
-                        name: defaultDomainQuery.data.domain, protocol: defaultDomainQuery.data.protocol,
-                        type: 'normal', private: bucketResponse.data.private != 0,
-                    }]);
+                    const result = defaultDomainQuery.data;
+                    const domains: Array<Domain> = [];
+                    if (result.domain && result.protocol) {
+                        domains.push({
+                            name: result.domain, protocol: result.protocol,
+                            type: 'normal', private: bucketResponse.data.private != 0,
+                        });
+                    }
+                    resolve(domains);
                 } else {
                     const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
                         switch (domain.type) {

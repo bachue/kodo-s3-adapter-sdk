@@ -88,11 +88,15 @@ export class Kodo implements Adapter {
 
     listBuckets(): Promise<Array<Bucket>> {
         return new Promise((resolve, reject) => {
+            const bucketsQuery = new URLSearchParams();
+            bucketsQuery.set('shared', 'rd');
+
             this.client.call({
                 method: 'GET',
                 serviceName: ServiceName.Uc,
                 path: 'v2/buckets',
                 dataType: 'json',
+                query: bucketsQuery,
             }).then((response) => {
                 const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
                     return new Promise((resolve) => {
@@ -102,10 +106,19 @@ export class Kodo implements Adapter {
                 });
                 Promise.all(regionsPromises).then((regionsInfo: Array<string | undefined>) => {
                     const bucketInfos: Array<Bucket> = response.data.map((info: any, index: number) => {
+                        let grantedPermission: string | undefined = undefined;
+                        switch (info.perm) {
+                            case 1:
+                                grantedPermission = 'readonly';
+                                break;
+                            case 2:
+                                grantedPermission = 'readwrite';
+                                break;
+                        }
                         return {
                             id: info.id, name: info.tbl,
                             createDate: new Date(info.ctime * 1000),
-                            regionId: regionsInfo[index],
+                            regionId: regionsInfo[index], grantedPermission: grantedPermission,
                         };
                     });
                     resolve(bucketInfos);

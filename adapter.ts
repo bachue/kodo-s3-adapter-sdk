@@ -65,6 +65,7 @@ export interface Bucket {
     name: string;
     createDate: Date;
     regionId?: string;
+    grantedPermission?: 'readonly' | 'readwrite';
 }
 
 export interface Domain {

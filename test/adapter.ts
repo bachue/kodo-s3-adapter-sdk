@@ -898,6 +898,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const bucket = buckets.find((bucket) => bucket.name === bucketName);
                 expect(bucket?.regionId).to.equal(bucketRegionId);
+                expect(bucket?.grantedPermission).to.be.undefined;
             });
 
             it('lists domain', async () => {

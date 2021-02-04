@@ -35,6 +35,8 @@ describe('Region', () => {
             expect(regions.map((r) => r.id)).to.have.members(['z0', 'z1', 'z2', 'as0', 'na0', 'fog-cn-east-1']);
             regions.forEach((r) => {
                 expect(r.label).not.to.be.empty;
+                expect(r.translatedLabels!['zh_CN']).not.to.be.empty;
+                expect(r.translatedLabels!['ja_JP']).not.to.be.empty;
             });
         });
     });

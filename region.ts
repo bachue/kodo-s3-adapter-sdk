@@ -14,7 +14,10 @@ export class Region {
     rsfUrls: Array<string> = [];
     apiUrls: Array<string> = [];
     s3Urls: Array<string> = [];
-    constructor(readonly id: string, readonly s3Id: string, readonly label?: string) {
+    constructor(readonly id: string,
+                readonly s3Id: string,
+                readonly label?: string,
+                readonly translatedLabels?: { [lang: string]: string; }) {
     }
 
     static getAll(options: { accessKey: string, secretKey: string, ucUrl?: string }): Promise<Array<Region>> {
@@ -104,7 +107,15 @@ export class Region {
     }
 
     private static fromResponseBody(ucUrl: string, r: any): Region {
-        const region: Region = new Region(r.region ?? r.id, r.s3.region_alias, r.description);
+        const translatedDescriptions: { [lang: string]: string; } = {};
+        for (const fieldName in r) {
+            if (fieldName.startsWith("description_")) {
+                const langName = fieldName.substring("description_".length);
+                translatedDescriptions[langName] = r[fieldName];
+            }
+        }
+
+        const region: Region = new Region(r.region ?? r.id, r.s3.region_alias, r.description, translatedDescriptions);
         const domain2Url = (domain: string) => {
             const url = new URL(ucUrl);
             return new URL(`${url.protocol}//${domain}`).toString();

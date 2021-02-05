@@ -14,7 +14,7 @@ import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption } from './adapter';
+    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -39,6 +39,8 @@ export class Kodo implements Adapter {
             timeout: [30000, 300000],
             retry: 10,
             retryDelay: 500,
+            requestCallback: adapterOption.requestCallback,
+            responseCallback: adapterOption.responseCallback,
         });
         this.regionService = new RegionService(adapterOption);
     }
@@ -307,19 +309,59 @@ export class Kodo implements Adapter {
     getObject(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
+                let requestInfo: RequestInfo | undefined = undefined;
+                const beginTime = new Date().getTime();
+
                 Kodo.httpClient.request(url.toString(), {
                     method: 'GET',
                     timeout: [30000, 300000],
                     retry: 10,
                     retryDelay: 500,
                     followRedirect: true,
+                    beforeRequest: (info) => {
+                        requestInfo = {
+                            url: url.toString(),
+                            method: info.method,
+                            headers: info.headers,
+                        };
+                        if (this.adapterOption.requestCallback) {
+                            this.adapterOption.requestCallback(requestInfo);
+                        }
+                    },
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    if (response.status === 200) {
-                        resolve({ data: response.data, header: getObjectHeader(response)});
-                    } else {
-                        reject(new Error(response.res.statusMessage));
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        statusCode: response.status,
+                        headers: response.headers,
+                        interval: new Date().getTime() - beginTime,
+                    };
+
+                    try {
+                        if (response.status === 200) {
+                            resolve({ data: response.data, header: getObjectHeader(response)});
+                        } else {
+                            const error = new Error(response.res.statusMessage);
+                            responseInfo.error = error;
+                            reject(error);
+                        }
+                    } finally {
+                        if (this.adapterOption.responseCallback) {
+                            this.adapterOption.responseCallback(responseInfo);
+                        }
                     }
-                }, reject);
+                }, (err) => {
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        interval: new Date().getTime() - beginTime,
+                        error: err,
+                    };
+
+                    if (this.adapterOption.responseCallback) {
+                        this.adapterOption.responseCallback(responseInfo);
+                    }
+
+                    reject(err);
+                });
             }, reject);
         });
     }
@@ -327,6 +369,8 @@ export class Kodo implements Adapter {
     getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
         return new Promise((resolve, reject) => {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
+                let requestInfo: RequestInfo | undefined = undefined;
+                const beginTime = new Date().getTime();
                 const headers: http.IncomingHttpHeaders = {};
                 if (option?.rangeStart || option?.rangeEnd) {
                     headers['Range'] = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
@@ -338,13 +382,50 @@ export class Kodo implements Adapter {
                     followRedirect: true,
                     headers: headers,
                     streaming: true,
+                    beforeRequest: (info) => {
+                        requestInfo = {
+                            url: url.toString(),
+                            method: info.method,
+                            headers: info.headers,
+                        };
+                        if (this.adapterOption.requestCallback) {
+                            this.adapterOption.requestCallback(requestInfo);
+                        }
+                    },
                 }).then((response: HttpClientResponse<any>) => {
-                    if (response.status === 200 || response.status === 206) {
-                        resolve(response.res);
-                    } else {
-                        reject(new Error(response.res.statusMessage));
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        statusCode: response.status,
+                        headers: response.headers,
+                        interval: new Date().getTime() - beginTime,
+                    };
+
+                    try {
+                        if (response.status === 200 || response.status === 206) {
+                            resolve(response.res);
+                        } else {
+                            const error = new Error(response.res.statusMessage);
+                            responseInfo.error = error;
+                            reject(error);
+                        }
+                    } finally {
+                        if (this.adapterOption.responseCallback) {
+                            this.adapterOption.responseCallback(responseInfo);
+                        }
                     }
-                }, reject);
+                }, (err) => {
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        interval: new Date().getTime() - beginTime,
+                        error: err,
+                    };
+
+                    if (this.adapterOption.responseCallback) {
+                        this.adapterOption.responseCallback(responseInfo);
+                    }
+
+                    reject(err);
+                });
             }, reject);
         });
     }
@@ -386,19 +467,59 @@ export class Kodo implements Adapter {
     getObjectHeader(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectHeader> {
         return new Promise((resolve, reject) => {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
+                let requestInfo: RequestInfo | undefined = undefined;
+                const beginTime = new Date().getTime();
+
                 Kodo.httpClient.request(url.toString(), {
                     method: 'HEAD',
                     timeout: [30000, 300000],
                     retry: 10,
                     retryDelay: 500,
                     followRedirect: true,
+                    beforeRequest: (info) => {
+                        requestInfo = {
+                            url: url.toString(),
+                            method: info.method,
+                            headers: info.headers,
+                        };
+                        if (this.adapterOption.requestCallback) {
+                            this.adapterOption.requestCallback(requestInfo);
+                        }
+                    },
                 }).then((response: HttpClientResponse<Buffer>) => {
-                    if (response.status === 200) {
-                        resolve(getObjectHeader(response));
-                    } else {
-                        reject(new Error(response.res.statusMessage));
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        statusCode: response.status,
+                        headers: response.headers,
+                        interval: new Date().getTime() - beginTime,
+                    };
+
+                    try {
+                        if (response.status === 200) {
+                            resolve(getObjectHeader(response));
+                        } else {
+                            const error = new Error(response.res.statusMessage);
+                            responseInfo.error = error;
+                            reject(error);
+                        }
+                    } finally {
+                        if (this.adapterOption.responseCallback) {
+                            this.adapterOption.responseCallback(responseInfo);
+                        }
                     }
-                }, reject);
+                }, (err) => {
+                    const responseInfo: ResponseInfo = {
+                        request: requestInfo!,
+                        interval: new Date().getTime() - beginTime,
+                        error: err,
+                    };
+
+                    if (this.adapterOption.responseCallback) {
+                        this.adapterOption.responseCallback(responseInfo);
+                    }
+
+                    reject(err);
+                });
             }, reject);
         });
     }

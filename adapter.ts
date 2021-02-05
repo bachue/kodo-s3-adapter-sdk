@@ -2,6 +2,7 @@ import { Region } from './region';
 import { URL } from 'url';
 import { Throttle } from 'stream-throttle';
 import { Readable } from 'stream';
+import { OutgoingHttpHeaders } from 'http';
 
 export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
@@ -58,6 +59,23 @@ export interface AdapterOption {
     regions: Array<Region>;
     ucUrl?: string;
     appendedUserAgent?: string;
+    requestCallback?: (request: RequestInfo) => void;
+    responseCallback?: (response: ResponseInfo) => void;
+}
+
+export interface RequestInfo {
+    url: string;
+    method: string;
+    headers: OutgoingHttpHeaders;
+}
+
+export interface ResponseInfo {
+    request: RequestInfo;
+    interval: number;
+    statusCode?: number;
+    headers?: OutgoingHttpHeaders;
+    data?: any;
+    error?: any;
 }
 
 export interface Bucket {

@@ -11,7 +11,7 @@ import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption, PutObjectOption,
-         InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption } from './adapter';
+    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -130,21 +130,52 @@ export class S3 implements Adapter {
         });
     }
 
+    private sendS3Request<D, E>(request: AWS.Request<D, E>, resolve: any, reject: any) {
+        let requestInfo: RequestInfo | undefined = undefined;
+        const beginTime = new Date().getTime();
+
+        request.on('sign', (request) => {
+            requestInfo = {
+                url: `${request.httpRequest.endpoint.href}${request.httpRequest.path}`,
+                method: request.httpRequest.method,
+                headers: request.httpRequest.headers,
+            };
+            if (this.adapterOption.requestCallback) {
+                this.adapterOption.requestCallback(requestInfo);
+            }
+        });
+        request.on('complete', (response) => {
+            const responseInfo: ResponseInfo = {
+                request: requestInfo!,
+                statusCode: response.httpResponse.statusCode,
+                headers: response.httpResponse.headers,
+                data: response.data,
+                error: response.error,
+                interval: new Date().getTime() - beginTime,
+            };
+            if (this.adapterOption.responseCallback) {
+                this.adapterOption.responseCallback(responseInfo);
+            }
+        });
+
+        request.send((err, data) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(data);
+            }
+        });
+    }
+
     createBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
             this.getClient(s3RegionId).then((s3) => {
-                s3.createBucket({
+                this.sendS3Request(s3.createBucket({
                     Bucket: bucket,
                     CreateBucketConfiguration: {
                         LocationConstraint: s3RegionId,
                     },
-                }, function(err) {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                }), resolve, reject);
             }, reject);
         });
     }
@@ -152,13 +183,7 @@ export class S3 implements Adapter {
     deleteBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
-                s3.deleteBucket({ Bucket: bucketId }, function(err) {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(s3.deleteBucket({ Bucket: bucketId }), resolve, reject);
             }, reject);
         });
     }
@@ -172,50 +197,40 @@ export class S3 implements Adapter {
     }
 
     private _getBucketLocation(s3: AWS.S3, bucketId: string, resolve: any, reject: any): void {
-        s3.getBucketLocation({ Bucket: bucketId }, (err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                const s3RegionId: string = data.LocationConstraint!;
-                resolve(s3RegionId);
-            }
-        });
+        this.sendS3Request(s3.getBucketLocation({ Bucket: bucketId }), (data: any) => {
+            const s3RegionId: string = data.LocationConstraint!;
+            resolve(s3RegionId);
+        }, reject);
     }
 
     listBuckets(): Promise<Array<Bucket>> {
         return new Promise((resolve, reject) => {
             this.getClient().then((s3) => {
-                s3.listBuckets((err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
-                            return this.fromS3BucketIdToKodoBucketName(info.Name);
-                        });
-                        const bucketLocationPromises: Array<Promise<string | undefined>> = data.Buckets!.map((info: any) => {
-                            return new Promise((resolve) => {
-                                s3.getBucketLocation({ Bucket: info.Name }, (err, data) => {
-                                    if (err) {
-                                        resolve(undefined);
-                                    } else {
-                                        resolve(data.LocationConstraint);
-                                    }
-                                });
+                this.sendS3Request(s3.listBuckets(), (data: any) => {
+                    const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
+                        return this.fromS3BucketIdToKodoBucketName(info.Name);
+                    });
+                    const bucketLocationPromises: Array<Promise<string | undefined>> = data.Buckets!.map((info: any) => {
+                        return new Promise((resolve) => {
+                            this.sendS3Request(s3.getBucketLocation({ Bucket: info.Name }), (data: any) => {
+                                resolve(data.LocationConstraint);
+                            }, () => {
+                                resolve(undefined);
                             });
                         });
-                        Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])
-                            .then(([bucketNames, bucketLocations]) => {
-                            const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
-                                return {
-                                    id: info.Name, name: bucketNames[index],
-                                    createDate: info.CreationDate,
-                                    regionId: bucketLocations[index],
-                                };
-                            });
-                            resolve(bucketInfos);
-                        }, reject);
-                    }
-                });
+                    });
+                    Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])
+                        .then(([bucketNames, bucketLocations]) => {
+                        const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
+                            return {
+                                id: info.Name, name: bucketNames[index],
+                                createDate: info.CreationDate,
+                                regionId: bucketLocations[index],
+                            };
+                        });
+                        resolve(bucketInfos);
+                    }, reject);
+                }, reject);
             }, reject);
         });
     }
@@ -227,15 +242,13 @@ export class S3 implements Adapter {
     isExists(s3RegionId: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else if (data.Contents && data.Contents.length > 0) {
+                this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }), (data: any) => {
+                    if (data.Contents && data.Contents.length > 0) {
                         resolve(data.Contents[0].Key === object.key);
                     } else {
                         resolve(false);
                     }
-                });
+                }, reject);
             }, reject);
         });
     }
@@ -243,13 +256,7 @@ export class S3 implements Adapter {
     deleteObject(s3RegionId: string, object: Object): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.deleteObject({ Bucket: bucketId, Key: object.key }, (err) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(s3.deleteObject({ Bucket: bucketId, Key: object.key }), resolve, reject);
             }, reject);
         });
     }
@@ -288,13 +295,7 @@ export class S3 implements Adapter {
                         option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
-                uploader.send((err) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(uploader, resolve, reject);
             }, reject);
         });
     }
@@ -302,16 +303,12 @@ export class S3 implements Adapter {
     getObject(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.getObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve({
-                            data: Buffer.from(data.Body!),
-                            header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
-                        });
-                    }
-                });
+                this.sendS3Request(s3.getObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                    resolve({
+                        data: Buffer.from(data.Body!),
+                        header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
+                    });
+                }, reject);
             }, reject);
         });
     }
@@ -347,13 +344,9 @@ export class S3 implements Adapter {
     getObjectHeader(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectHeader> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve({ size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! });
-                    }
-                });
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                    resolve({ size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! });
+                }, reject);
             }, reject);
         });
     }
@@ -386,13 +379,7 @@ export class S3 implements Adapter {
                     MetadataDirective: 'COPY',
                     StorageClass: storageClass,
                 };
-                s3.copyObject(params, (err) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(s3.copyObject(params), resolve, reject);
             }, reject);
         });
     }
@@ -400,13 +387,9 @@ export class S3 implements Adapter {
     private getObjectStorageClass(s3RegionId: string, object: Object): Promise<string | undefined> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(data.StorageClass);
-                    }
-                });
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                    resolve(data.StorageClass);
+                }, reject);
             }, reject);
         });
     }
@@ -486,12 +469,45 @@ export class S3 implements Adapter {
                     counter += batch.length;
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
-                            s3.deleteObjects({
+                            this.sendS3Request(s3.deleteObjects({
                                 Bucket: bucketId,
                                 Delete: {
                                     Objects: batch.map((key) => { return { Key: key }; }),
                                 },
-                            }, (err, results) => {
+                            }), (results: any) => {
+                                let aborted = false;
+                                if (results.Deleted) {
+                                    results.Deleted.forEach((deletedObject: any) => {
+                                        const index = batch.findIndex((key) => key === deletedObject.Key);
+                                        if (index < 0) {
+                                            throw new Error('s3.deleteObjects deleted key which is not given');
+                                        }
+                                        if (callback && callback(index + firstIndexInCurrentBatch) === false) {
+                                            aborted = true;
+                                        }
+                                        partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key! };
+                                    });
+                                }
+                                if (results.Errors) {
+                                    results.Errors.forEach((deletedObject: any) => {
+                                        const error = new Error(deletedObject.Message);
+                                        const index = batch.findIndex((key) => key === deletedObject.Key);
+                                        if (index < 0) {
+                                            throw new Error('s3.deleteObjects deleted key which is not given');
+                                        }
+                                        if (callback && callback(index + firstIndexInCurrentBatch, error) === false) {
+                                            aborted = true;
+                                        }
+                                        partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key!, error: error };
+                                    });
+                                }
+                                if (aborted) {
+                                    reject(new Error('aborted'));
+                                } else {
+                                    resolve(partialObjectErrors);
+                                }
+                                release();
+                            }, (err: any) => {
                                 let aborted = false;
                                 if (err) {
                                     batch.forEach((key, index) => {
@@ -500,32 +516,6 @@ export class S3 implements Adapter {
                                         }
                                         partialObjectErrors[index] = { bucket: bucket, key: key, error: err };
                                     });
-                                } else {
-                                    if (results.Deleted) {
-                                        results.Deleted.forEach((deletedObject) => {
-                                            const index = batch.findIndex((key) => key === deletedObject.Key);
-                                            if (index < 0) {
-                                                throw new Error('s3.deleteObjects deleted key which is not given');
-                                            }
-                                            if (callback && callback(index + firstIndexInCurrentBatch) === false) {
-                                                aborted = true;
-                                            }
-                                            partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key! };
-                                        });
-                                    }
-                                    if (results.Errors) {
-                                        results.Errors.forEach((deletedObject) => {
-                                            const error = new Error(deletedObject.Message);
-                                            const index = batch.findIndex((key) => key === deletedObject.Key);
-                                            if (index < 0) {
-                                                throw new Error('s3.deleteObjects deleted key which is not given');
-                                            }
-                                            if (callback && callback(index + firstIndexInCurrentBatch, error) === false) {
-                                                aborted = true;
-                                            }
-                                            partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key!, error: error };
-                                        });
-                                    }
                                 }
                                 if (aborted) {
                                     reject(new Error('aborted'));
@@ -551,10 +541,8 @@ export class S3 implements Adapter {
     getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                s3.headObject({ Bucket: bucketId, Key: object.key }, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else if (data.StorageClass?.toLowerCase() === 'glacier') {
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                    if (data.StorageClass?.toLowerCase() === 'glacier') {
                         if (data.Restore) {
                             const restoreInfo = parseRestoreInfo(data.Restore);
                             if (restoreInfo.get('ongoing-request') === 'true') {
@@ -573,7 +561,7 @@ export class S3 implements Adapter {
                     } else {
                         resolve({ status: 'Normal' });
                     }
-                });
+                }, reject);
             }, reject);
         });
     }
@@ -588,13 +576,7 @@ export class S3 implements Adapter {
                         GlacierJobParameters: { Tier: 'Standard' },
                     },
                 };
-                s3.restoreObject(params, (err) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(s3.restoreObject(params), resolve, reject);
             }, reject);
         });
     }
@@ -615,49 +597,45 @@ export class S3 implements Adapter {
         const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,
         };
-        s3.listObjects(params, (err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                let isEmpty = true;
-                delete results.nextContinuationToken;
-                if (data.Contents && data.Contents.length > 0) {
-                    isEmpty = false;
-                    results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
-                        return {
-                            bucket: bucket, key: object.Key!, size: object.Size!,
-                            lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
-                        };
-                    }));
-                }
-                if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
-                    isEmpty = false;
-                    if (!results.commonPrefixes) {
-                        results.commonPrefixes = [];
-                    }
-                    results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
-                        return { bucket: bucket, key: commonPrefix.Prefix! };
-                    }));
-                }
-                if (!isEmpty && data.NextMarker) {
-                    newOption.nextContinuationToken = data.NextMarker;
-                    results.nextContinuationToken = data.NextMarker;
-                    if (option?.minKeys) {
-                        let resultsSize = results.objects.length;
-                        if (results.commonPrefixes) {
-                            resultsSize += results.commonPrefixes.length;
-                        }
-                        if (resultsSize < option.minKeys) {
-                            newOption.minKeys = option.minKeys;
-                            newOption.maxKeys = option.minKeys - resultsSize;
-                            this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
-                            return;
-                        }
-                    }
-                }
-                resolve(results);
+        this.sendS3Request(s3.listObjects(params), (data: any) => {
+            let isEmpty = true;
+            delete results.nextContinuationToken;
+            if (data.Contents && data.Contents.length > 0) {
+                isEmpty = false;
+                results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
+                    return {
+                        bucket: bucket, key: object.Key!, size: object.Size!,
+                        lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
+                    };
+                }));
             }
-        });
+            if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+                isEmpty = false;
+                if (!results.commonPrefixes) {
+                    results.commonPrefixes = [];
+                }
+                results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
+                    return { bucket: bucket, key: commonPrefix.Prefix! };
+                }));
+            }
+            if (!isEmpty && data.NextMarker) {
+                newOption.nextContinuationToken = data.NextMarker;
+                results.nextContinuationToken = data.NextMarker;
+                if (option?.minKeys) {
+                    let resultsSize = results.objects.length;
+                    if (results.commonPrefixes) {
+                        resultsSize += results.commonPrefixes.length;
+                    }
+                    if (resultsSize < option.minKeys) {
+                        newOption.minKeys = option.minKeys;
+                        newOption.maxKeys = option.minKeys - resultsSize;
+                        this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
+                        return;
+                    }
+                }
+            }
+            resolve(results);
+        }, reject);
     }
 
     createMultipartUpload(s3RegionId: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput> {
@@ -669,13 +647,9 @@ export class S3 implements Adapter {
                 if (header?.contentType) {
                     params.ContentType = header!.contentType;
                 }
-                s3.createMultipartUpload(params, (err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve({ uploadId: data.UploadId! });
-                    }
-                });
+                this.sendS3Request(s3.createMultipartUpload(params), (data: any) => {
+                    resolve({ uploadId: data.UploadId! });
+                }, reject);
             }, reject);
         });
     }
@@ -706,13 +680,9 @@ export class S3 implements Adapter {
                         option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
-                uploader.send((err, data) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve({ etag: data.ETag! });
-                    }
-                });
+                this.sendS3Request(uploader, (data: any) => {
+                    resolve({ etag: data.ETag! });
+                }, reject);
             }, reject);
         });
     }
@@ -728,13 +698,7 @@ export class S3 implements Adapter {
                         }),
                     },
                 };
-                s3.completeMultipartUpload(params, (err) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
-                    }
-                });
+                this.sendS3Request(s3.completeMultipartUpload(params), resolve, reject);
             }, reject);
         });
     }

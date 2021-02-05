@@ -5,6 +5,7 @@ import { HttpClient2, RequestOptions2, HttpClientResponse, HttpMethod } from 'ur
 import { URL, URLSearchParams } from 'url';
 import { Region } from './region';
 import { generateAccessTokenV2 } from './kodo-auth';
+import { RequestInfo, ResponseInfo } from './adapter';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Throttle } from 'stream-throttle';
 
@@ -19,6 +20,8 @@ export interface SharedRequestOptions {
     userAgent?: string;
     retry?: number;
     retryDelay?: number;
+    requestCallback?: (request: RequestInfo) => void;
+    responseCallback?: (response: ResponseInfo) => void;
 }
 
 export interface RequestOptions {
@@ -74,6 +77,9 @@ export class KodoHttpClient {
             }
         }
 
+        let requestInfo: RequestInfo | undefined = undefined;
+        const beginTime = new Date().getTime();
+
         const requestOption: RequestOptions2 = {
             method: options.method,
             dataType: options.dataType,
@@ -84,6 +90,16 @@ export class KodoHttpClient {
             retry: this.sharedOptions.retry,
             retryDelay: this.sharedOptions.retryDelay,
             isRetry: this.isRetry,
+            beforeRequest: (info) => {
+                requestInfo = {
+                    url: url,
+                    method: info.method,
+                    headers: info.headers,
+                };
+                if (this.sharedOptions.requestCallback) {
+                    this.sharedOptions.requestCallback(requestInfo);
+                }
+            },
         };
         const data: any = options.data ?? options.form?.getBuffer();
         let callbackError: Error | undefined = undefined;
@@ -122,27 +138,59 @@ export class KodoHttpClient {
         }
 
         KodoHttpClient.httpClient.request(url, requestOption).then((response) => {
-            if (callbackError) {
-                return;
-            } else if (response.status >= 200 && response.status < 400) {
-                resolve(response);
-            } else if (urls.length > 0) {
-                this.callForOneUrl(urls, options, resolve, reject);
-            } else if (response.data.error) {
-                reject(new Error(response.data.error));
-            } else {
-                try {
-                    const data: any = JSON.parse(response.data);
-                    if (data.error) {
-                        reject(new Error(data.error));
-                    } else {
-                        reject(new Error(response.res.statusMessage));
+            const responseInfo: ResponseInfo = {
+                request: requestInfo!,
+                statusCode: response.status,
+                headers: response.headers,
+                data: response.data,
+                interval: new Date().getTime() - beginTime,
+            };
+
+            try {
+                if (callbackError) {
+                    return;
+                } else if (response.status >= 200 && response.status < 400) {
+                    resolve(response);
+                } else if (urls.length > 0) {
+                    this.callForOneUrl(urls, options, resolve, reject);
+                } else if (response.data.error) {
+                    const error = new Error(response.data.error);
+                    responseInfo.error = error;
+                    reject(error);
+                } else {
+                    try {
+                        const data: any = JSON.parse(response.data);
+                        if (data.error) {
+                            const error = new Error(data.error);
+                            responseInfo.error = error;
+                            reject(error);
+                        } else {
+                            const error = new Error(response.res.statusMessage);
+                            responseInfo.error = error;
+                            reject(error);
+                        }
+                    } catch {
+                        const error = new Error(response.res.statusMessage);
+                        responseInfo.error = error;
+                        reject(error);
                     }
-                } catch {
-                    reject(new Error(response.res.statusMessage));
+                }
+            } finally {
+                if (this.sharedOptions.responseCallback) {
+                    this.sharedOptions.responseCallback(responseInfo);
                 }
             }
         }).catch((err) => {
+            const responseInfo: ResponseInfo = {
+                request: requestInfo!,
+                interval: new Date().getTime() - beginTime,
+                error: err,
+            };
+
+            if (this.sharedOptions.responseCallback) {
+                this.sharedOptions.responseCallback(responseInfo);
+            }
+
             if (callbackError) {
                 return;
             } else if (urls.length > 0) {

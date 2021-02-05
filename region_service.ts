@@ -29,6 +29,8 @@ export class RegionService {
                         accessKey: this.adapterOption.accessKey,
                         secretKey: this.adapterOption.secretKey,
                         ucUrl: this.adapterOption.ucUrl,
+                        requestCallback: this.adapterOption.requestCallback,
+                        responseCallback: this.adapterOption.responseCallback,
                     });
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;

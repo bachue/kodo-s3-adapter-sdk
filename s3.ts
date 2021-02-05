@@ -135,8 +135,14 @@ export class S3 implements Adapter {
         const beginTime = new Date().getTime();
 
         request.on('sign', (request) => {
+            let url = request.httpRequest.endpoint.href;
+            if (url.endsWith('/') && request.httpRequest.path.startsWith('/')) {
+                url += request.httpRequest.path.substring(1);
+            } else {
+                url += request.httpRequest.path;
+            }
             requestInfo = {
-                url: `${request.httpRequest.endpoint.href}${request.httpRequest.path}`,
+                url: url,
                 method: request.httpRequest.method,
                 headers: request.httpRequest.headers,
             };

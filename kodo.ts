@@ -35,6 +35,8 @@ export class Kodo implements Adapter {
             accessKey: adapterOption.accessKey,
             secretKey: adapterOption.secretKey,
             ucUrl: adapterOption.ucUrl,
+            regions: adapterOption.regions,
+            appendedUserAgent: adapterOption.appendedUserAgent,
             userAgent: userAgent,
             timeout: [30000, 300000],
             retry: 10,

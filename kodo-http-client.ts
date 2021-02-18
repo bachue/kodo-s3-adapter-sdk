@@ -4,24 +4,20 @@ import FormData from 'form-data';
 import { HttpClient2, RequestOptions2, HttpClientResponse, HttpMethod } from 'urllib';
 import { URL, URLSearchParams } from 'url';
 import { Region } from './region';
+import { RegionService } from './region_service';
 import { generateAccessTokenV2 } from './kodo-auth';
-import { RequestInfo, ResponseInfo } from './adapter';
+import { AdapterOption, RequestInfo, ResponseInfo } from './adapter';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { Throttle } from 'stream-throttle';
 
 export type HttpProtocol = "http" | "https";
 
-export interface SharedRequestOptions {
-    ucUrl?: string;
-    accessKey: string;
-    secretKey: string;
+export interface SharedRequestOptions extends AdapterOption {
     protocol?: HttpProtocol,
     timeout?: number | number[];
     userAgent?: string;
     retry?: number;
     retryDelay?: number;
-    requestCallback?: (request: RequestInfo) => void;
-    responseCallback?: (response: ResponseInfo) => void;
 }
 
 export interface RequestOptions {
@@ -44,8 +40,10 @@ export class KodoHttpClient {
     private static readonly httpClient: HttpClient2 = new HttpClient2();
     private readonly regionsCache: { [key: string]: Region; } = {};
     private readonly regionsCacheLock = new AsyncLock();
+    private readonly regionService: RegionService;
 
     constructor(private readonly sharedOptions: SharedRequestOptions) {
+        this.regionService = new RegionService(sharedOptions);
     }
 
     call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
@@ -270,11 +268,7 @@ export class KodoHttpClient {
                     });
                 } else {
                     return new Promise((resolve, reject) => {
-                        Region.getAll({
-                            accessKey: this.sharedOptions.accessKey,
-                            secretKey: this.sharedOptions.secretKey,
-                            ucUrl: this.sharedOptions.ucUrl,
-                        }).then((regions) => {
+                        this.regionService.getAllRegions().then((regions) => {
                             if (regions.length == 0) {
                                 reject(Error('regions is empty'));
                                 return;

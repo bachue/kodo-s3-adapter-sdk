@@ -91,6 +91,36 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 expect(isExisted).to.equal(false);
             });
 
+            it('moves and copies object by force', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes(1 << 12);
+                const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
+                await qiniuAdapter.putObject(
+                    bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName,
+                    { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' });
+
+                const newKey = `${key}-new`;
+                await qiniuAdapter.copyObject(bucketRegionId, { from: { bucket: bucketName, key: key }, to: { bucket: bucketName, key: newKey } });
+
+                let isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                expect(isExisted).to.equal(true);
+
+                isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: newKey });
+                expect(isExisted).to.equal(true);
+
+                await qiniuAdapter.moveObject(bucketRegionId, { from: { bucket: bucketName, key: key }, to: { bucket: bucketName, key: newKey } });
+
+                isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
+                expect(isExisted).to.equal(false);
+
+                isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: newKey });
+                expect(isExisted).to.equal(true);
+
+                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: newKey });
+            });
+
             it('moves, copies and deletes objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);

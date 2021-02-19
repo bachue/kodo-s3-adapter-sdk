@@ -531,7 +531,7 @@ export class Kodo implements Adapter {
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Rs,
-                path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`,
+                path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
@@ -544,7 +544,7 @@ export class Kodo implements Adapter {
             this.client.call({
                 method: 'POST',
                 serviceName: ServiceName.Rs,
-                path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`,
+                path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
@@ -579,7 +579,7 @@ export class Kodo implements Adapter {
             return new Promise((resolve, reject) => {
                 const params = new URLSearchParams();
                 for (const transferObject of batch) {
-                    params.append('op', `/${op}/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}`);
+                    params.append('op', `/${op}/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`);
                 }
                 semaphore.acquire().then((release) => {
                     this.client.call({

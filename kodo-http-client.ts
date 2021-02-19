@@ -54,6 +54,11 @@ export class KodoHttpClient {
         });
     }
 
+    clearCache() {
+        Object.keys(this.regionsCache).forEach((key) => { delete this.regionsCache[key]; });
+        this.regionService.clearCache();
+    }
+
     private callForOneUrl(urls: Array<string>, options: RequestOptions, resolve: (value?: any) => void, reject: (error?: any) => void): void {
         const urlString: string | undefined = urls.shift();
         if (!urlString) {

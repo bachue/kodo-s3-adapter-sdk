@@ -926,6 +926,12 @@ export class Kodo implements Adapter {
             }).then(() => { resolve(); }).catch(reject);
         });
     }
+
+    clearCache() {
+        Object.keys(this.bucketDomainsCache).forEach((key) => { delete this.bucketDomainsCache[key]; });
+        this.client.clearCache();
+        this.regionService.clearCache();
+    }
 }
 
 function toStorageClass(type?: number): StorageClass {

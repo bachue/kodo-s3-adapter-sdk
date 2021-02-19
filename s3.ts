@@ -708,6 +708,14 @@ export class S3 implements Adapter {
             }).catch(reject);
         });
     }
+
+    clearCache() {
+        Object.keys(this.bucketNameToIdCache).forEach((key) => { delete this.bucketNameToIdCache[key]; });
+        Object.keys(this.bucketIdToNameCache).forEach((key) => { delete this.bucketIdToNameCache[key]; });
+        Object.keys(this.clients).forEach((key) => { delete this.clients[key]; });
+        this.kodo.clearCache();
+        this.regionService.clearCache();
+    }
 }
 
 function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass {

@@ -35,6 +35,8 @@ export abstract class Adapter {
     abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
+
+    abstract clearCache(): void;
 }
 
 export type BatchCallback = (index: number, error?: Error) => any;

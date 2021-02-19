@@ -40,6 +40,10 @@ export class RegionService {
         });
     }
 
+    clearCache() {
+        this.allRegions = undefined;
+    }
+
     getS3Endpoint(s3RegionId?: string): Promise<S3IdEndpoint> {
         return new Promise((resolve, reject) => {
             let queryCondition: (region: Region) => boolean;

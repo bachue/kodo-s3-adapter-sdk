@@ -50,7 +50,7 @@ export class KodoHttpClient {
         return new Promise((resolve, reject) => {
             this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId).then((urls) => {
                 this.callForOneUrl(urls, options, resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -283,13 +283,13 @@ export class KodoHttpClient {
                             } else {
                                 resolve(regions[0]);
                             }
-                        }, reject);
+                        }).catch(reject);
                     });
                 }
             }).then((region: Region) => {
                 this.regionsCache[key] = region;
                 resolve(this.getUrlsFromRegion(serviceName, region));
-            }, reject);
+            }).catch(reject);
         });
     }
 

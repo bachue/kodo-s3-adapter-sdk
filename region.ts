@@ -85,7 +85,7 @@ export class Region {
                             options.responseCallback(responseInfo);
                         }
                     }
-                }, (err) => {
+                }).catch((err) => {
                     const responseInfo: ResponseInfo = {
                         request: requestInfo!,
                         interval: new Date().getTime() - beginTime,
@@ -159,7 +159,7 @@ export class Region {
                             options.responseCallback(responseInfo);
                         }
                     }
-                }, (err) => {
+                }).catch((err) => {
                     const responseInfo: ResponseInfo = {
                         request: requestInfo!,
                         interval: new Date().getTime() - beginTime,

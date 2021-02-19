@@ -35,7 +35,7 @@ export class RegionService {
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;
                     resolve(regions);
-                }, reject);
+                }).catch(reject);
             }
         });
     }
@@ -60,7 +60,7 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions, reject);
+            this.getAllRegions().then(queryInRegions).catch(reject);
         });
     }
 
@@ -76,7 +76,7 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions, reject);
+            this.getAllRegions().then(queryInRegions).catch(reject);
         });
     }
 
@@ -92,7 +92,7 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions, reject);
+            this.getAllRegions().then(queryInRegions).catch(reject);
         });
     }
 }

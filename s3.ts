@@ -61,12 +61,12 @@ export class S3 implements Adapter {
                                 timeout: 300000,
                             }
                         }));
-                    }, reject);
+                    }).catch(reject);
                 });
             }).then((client: AWS.S3) => {
                 this.clients[cacheKey] = client;
                 resolve(client);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -88,7 +88,7 @@ export class S3 implements Adapter {
                             this.bucketIdToNameCache[bucket.id] = bucket.name;
                         });
                         resolve();
-                    }, reject);
+                    }).catch(reject);
                 });
             }).then(() => {
                 if (this.bucketNameToIdCache[bucketName]) {
@@ -96,7 +96,7 @@ export class S3 implements Adapter {
                 } else {
                     resolve(bucketName);
                 }
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -118,7 +118,7 @@ export class S3 implements Adapter {
                             this.bucketIdToNameCache[bucket.id] = bucket.name;
                         });
                         resolve();
-                    }, reject);
+                    }).catch(reject);
                 });
             }).then(() => {
                 if (this.bucketIdToNameCache[bucketId]) {
@@ -126,7 +126,7 @@ export class S3 implements Adapter {
                 } else {
                     reject(new Error(`Cannot find bucket name of bucket ${bucketId}`));
                 }
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -182,7 +182,7 @@ export class S3 implements Adapter {
                         LocationConstraint: s3RegionId,
                     },
                 }), resolve, reject);
-            }, reject);
+            }, reject).catch(reject);
         });
     }
 
@@ -190,7 +190,7 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 this.sendS3Request(s3.deleteBucket({ Bucket: bucketId }), resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -198,7 +198,7 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 this._getBucketLocation(s3, bucketId, resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -235,9 +235,9 @@ export class S3 implements Adapter {
                             };
                         });
                         resolve(bucketInfos);
-                    }, reject);
+                    }).catch(reject);
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -255,7 +255,7 @@ export class S3 implements Adapter {
                         resolve(false);
                     }
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -263,7 +263,7 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 this.sendS3Request(s3.deleteObject({ Bucket: bucketId, Key: object.key }), resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -302,7 +302,7 @@ export class S3 implements Adapter {
                     });
                 }
                 this.sendS3Request(uploader, resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -315,7 +315,7 @@ export class S3 implements Adapter {
                         header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
                     });
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -328,7 +328,7 @@ export class S3 implements Adapter {
                 }
 
                 resolve(s3.getObject({ Bucket: bucketId, Key: object.key, Range: range }).createReadStream());
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -343,7 +343,7 @@ export class S3 implements Adapter {
                 }
                 const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
                 resolve(new URL(url));
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -353,18 +353,18 @@ export class S3 implements Adapter {
                 this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
                     resolve({ size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! });
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
     moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
         return new Promise((resolve, reject) => {
             this.copyObject(s3RegionId, transferObject).then(() => {
-                this.deleteObject(s3RegionId, transferObject.from).then(resolve, (err) => {
+                this.deleteObject(s3RegionId, transferObject.from).then(resolve).catch((err) => {
                     err.stage = 'delete';
                     reject(err);
                 });
-            }, (err) => {
+            }).catch((err) => {
                 err.stage = 'copy';
                 reject(err);
             });
@@ -386,7 +386,7 @@ export class S3 implements Adapter {
                     StorageClass: storageClass,
                 };
                 this.sendS3Request(s3.copyObject(params), resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -396,7 +396,7 @@ export class S3 implements Adapter {
                 this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
                     resolve(data.StorageClass);
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -412,7 +412,7 @@ export class S3 implements Adapter {
                                 return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
-                        }, (err) => {
+                        }).catch((err) => {
                             if (callback && callback(index, err) === false) {
                                 reject(new Error('aborted'));
                                 return;
@@ -424,7 +424,7 @@ export class S3 implements Adapter {
                     });
                 });
             });
-            Promise.all(promises).then(resolve, reject);
+            Promise.all(promises).then(resolve).catch(reject);
         });
     }
 
@@ -440,7 +440,7 @@ export class S3 implements Adapter {
                                 return;
                             }
                             resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
-                        }, (err) => {
+                        }).catch((err) => {
                             if (callback && callback(index, err) === false) {
                                 reject(new Error('aborted'));
                                 return;
@@ -452,7 +452,7 @@ export class S3 implements Adapter {
                     });
                 });
             });
-            Promise.all(promises).then(resolve, reject);
+            Promise.all(promises).then(resolve).catch(reject);
         });
     }
 
@@ -539,8 +539,8 @@ export class S3 implements Adapter {
                         results = results.concat(batch);
                     }
                     resolve(results);
-                }, reject);
-            }, reject);
+                }).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -568,7 +568,7 @@ export class S3 implements Adapter {
                         resolve({ status: 'Normal' });
                     }
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -583,7 +583,7 @@ export class S3 implements Adapter {
                     },
                 };
                 this.sendS3Request(s3.restoreObject(params), resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -592,7 +592,7 @@ export class S3 implements Adapter {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 const results: ListedObjects = { objects: [] };
                 this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, option);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -656,7 +656,7 @@ export class S3 implements Adapter {
                 this.sendS3Request(s3.createMultipartUpload(params), (data: any) => {
                     resolve({ uploadId: data.UploadId! });
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -689,7 +689,7 @@ export class S3 implements Adapter {
                 this.sendS3Request(uploader, (data: any) => {
                     resolve({ etag: data.ETag! });
                 }, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -705,7 +705,7 @@ export class S3 implements Adapter {
                     },
                 };
                 this.sendS3Request(s3.completeMultipartUpload(params), resolve, reject);
-            }, reject);
+            }).catch(reject);
         });
     }
 }

@@ -21,7 +21,7 @@ export class Uploader {
             const partsCount = partsCountOfFile(fileSize, partSize);
 
             if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
-                this.putObject(region, object, file, fileSize, originalFileName, putFileOption).then(resolve, reject);
+                this.putObject(region, object, file, fileSize, originalFileName, putFileOption).then(resolve).catch(reject);
                 return;
             }
 
@@ -49,9 +49,9 @@ export class Uploader {
 
                     recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
                     this.adapter.completeMultipartUpload(region, object, recovered.uploadId, recovered.parts, originalFileName, putFileOption?.header)
-                                .then(resolve, reject);
-                }, reject);
-            }, reject);
+                                .then(resolve).catch(reject);
+                }).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -77,8 +77,8 @@ export class Uploader {
                                        putFileOption?.header, {
                                            progressCallback: putFileOption?.putCallback?.progressCallback,
                                            throttle: throttle,
-                                       }).then(resolve, reject);
-            }, reject);
+                                       }).then(resolve).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -94,7 +94,7 @@ export class Uploader {
                 this.adapter.createMultipartUpload(region, object, originalFileName, putFileOption?.header).then((initPartsOutput) => {
                     recovered.uploadId = initPartsOutput.uploadId;
                     resolve(recovered);
-                }, reject);
+                }).catch(reject);
             }
         });
     }
@@ -115,7 +115,7 @@ export class Uploader {
             if (findPartsByNumber(recovered.parts, partNumber)) {
                 this.uploadParts(region, object, file, fileSize, uploaded, recovered,
                                  partNumber + 1, partsCount, partSize, putFileOption)
-                    .then(resolve, reject);
+                    .then(resolve).catch(reject);
             } else {
                 let data: Buffer | undefined = Buffer.alloc(partSize);
                 file.read(data, 0, partSize, partSize * (partNumber - 1)).then(({ bytesRead }) => {
@@ -159,9 +159,9 @@ export class Uploader {
                         uploaded += bytesRead;
                         this.uploadParts(region, object, file, fileSize, uploaded, recovered,
                                          partNumber + 1, partsCount, partSize, putFileOption)
-                            .then(resolve, reject);
-                    }, reject);
-                }, reject);
+                            .then(resolve).catch(reject);
+                    }).catch(reject);
+                }).catch(reject);
             }
         });
     }

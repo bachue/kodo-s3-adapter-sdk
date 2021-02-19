@@ -32,12 +32,12 @@ export class Downloader {
                         if (typeof(getFileOption.recoveredFrom) === 'number') {
                             recoveredFrom = getFileOption.recoveredFrom > stat.size ? stat.size : getFileOption.recoveredFrom;
                         }
-                        this.getObjectToFilePath(region, object, filePath, recoveredFrom, header.size, 0, domain, getFileOption).then(resolve, reject);
-                    }, reject);
+                        this.getObjectToFilePath(region, object, filePath, recoveredFrom, header.size, 0, domain, getFileOption).then(resolve).catch(reject);
+                    }).catch(reject);
                 } else {
-                    this.getObjectToFilePath(region, object, filePath, 0, header.size, 0, domain, getFileOption).then(resolve, reject);
+                    this.getObjectToFilePath(region, object, filePath, 0, header.size, 0, domain, getFileOption).then(resolve).catch(reject);
                 }
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -58,10 +58,10 @@ export class Downloader {
                     resolve();
                 } else if (receivedDataBytes > offset) {
                     this.getObjectToFilePath(region, object, filePath, receivedDataBytes, totalObjectSize,
-                                             0, domain, getFileOption).then(resolve, reject);
+                                             0, domain, getFileOption).then(resolve).catch(reject);
                 } else if (retriedOnThisOffset < (getFileOption?.retriesOnSameOffset ?? DEFAULT_RETRIES_ON_SAME_OFFSET)) {
                     this.getObjectToFilePath(region, object, filePath, receivedDataBytes, totalObjectSize,
-                                             retriedOnThisOffset + 1, domain, getFileOption).then(resolve, reject);
+                                             retriedOnThisOffset + 1, domain, getFileOption).then(resolve).catch(reject);
                 } else if (err) {
                     reject(err);
                 } else {
@@ -76,7 +76,7 @@ export class Downloader {
             this.getObjectToFileWriteStream(region, object, fileWriteStream, offset, totalObjectSize, domain, getFileOption).then((getResult) => {
                 destroyFileWriteStream();
                 retries(getResult);
-            }, (err) => {
+            }).catch((err) => {
                 destroyFileWriteStream();
                 reject(err);
             });
@@ -169,7 +169,7 @@ export class Downloader {
                     }
                     resolve({ downloaded: receivedDataBytes });
                 });
-            }, (err) => {
+            }).catch((err) => {
                 resolve({ downloaded: offset, error: err });
             });
         });

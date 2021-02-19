@@ -56,8 +56,8 @@ export class Kodo implements Adapter {
                     path: `mkbucketv3/${bucket}/region/${kodoRegionId}`,
                 }).then(() => {
                     resolve();
-                }, reject);
-            });
+                }).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -70,7 +70,7 @@ export class Kodo implements Adapter {
                 path: `drop/${bucket}`,
             }).then(() => {
                 resolve();
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -85,8 +85,8 @@ export class Kodo implements Adapter {
             }).then((response) => {
                 const kodoRegionId = response.data.region;
                 this.regionService.fromKodoRegionIdToS3Id(kodoRegionId)
-                                  .then(resolve, reject);
-            }, reject);
+                                  .then(resolve).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -105,7 +105,7 @@ export class Kodo implements Adapter {
                 const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
                     return new Promise((resolve) => {
                         this.regionService.fromKodoRegionIdToS3Id(info.region)
-                                          .then(resolve, () => { resolve(undefined); });
+                                          .then(resolve).catch(() => { resolve(undefined); });
                     });
                 });
                 Promise.all(regionsPromises).then((regionsInfo: Array<string | undefined>) => {
@@ -126,8 +126,8 @@ export class Kodo implements Adapter {
                         };
                     });
                     resolve(bucketInfos);
-                });
-            }, reject);
+                }).catch(reject);
+            }).catch(reject);
         });
     }
 
@@ -201,7 +201,7 @@ export class Kodo implements Adapter {
                     });
                     resolve(domains);
                 }
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -220,7 +220,7 @@ export class Kodo implements Adapter {
             }).then((domains: Array<Domain>) => {
                 this.bucketDomainsCache[bucket] = domains;
                 resolve(domains);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -236,7 +236,7 @@ export class Kodo implements Adapter {
                     return { id: info.id, name: info.tbl };
                 });
                 resolve(bucketInfos);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -251,7 +251,7 @@ export class Kodo implements Adapter {
                 contentType: 'application/x-www-form-urlencoded',
             }).then((_response) => {
                 resolve(true);
-            }, (error) => {
+            }).catch((error) => {
                 if (error.message === 'no such file or directory') {
                     resolve(false);
                 } else {
@@ -270,7 +270,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -304,7 +304,7 @@ export class Kodo implements Adapter {
                 form: form,
                 uploadProgress: option?.progressCallback,
                 uploadThrottle: option?.throttle,
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -351,7 +351,7 @@ export class Kodo implements Adapter {
                             this.adapterOption.responseCallback(responseInfo);
                         }
                     }
-                }, (err) => {
+                }).catch((err) => {
                     const responseInfo: ResponseInfo = {
                         request: requestInfo!,
                         interval: new Date().getTime() - beginTime,
@@ -364,7 +364,7 @@ export class Kodo implements Adapter {
 
                     reject(err);
                 });
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -415,7 +415,7 @@ export class Kodo implements Adapter {
                             this.adapterOption.responseCallback(responseInfo);
                         }
                     }
-                }, (err) => {
+                }).catch((err) => {
                     const responseInfo: ResponseInfo = {
                         request: requestInfo!,
                         interval: new Date().getTime() - beginTime,
@@ -428,7 +428,7 @@ export class Kodo implements Adapter {
 
                     reject(err);
                 });
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -453,7 +453,7 @@ export class Kodo implements Adapter {
                     };
                     domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
                     resolve(domains[0]);
-                }, reject);
+                }).catch(reject);
             });
 
             domainPromise.then((domain: Domain) => {
@@ -462,7 +462,7 @@ export class Kodo implements Adapter {
                     url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
                 }
                 resolve(url);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -509,7 +509,7 @@ export class Kodo implements Adapter {
                             this.adapterOption.responseCallback(responseInfo);
                         }
                     }
-                }, (err) => {
+                }).catch((err) => {
                     const responseInfo: ResponseInfo = {
                         request: requestInfo!,
                         interval: new Date().getTime() - beginTime,
@@ -522,7 +522,7 @@ export class Kodo implements Adapter {
 
                     reject(err);
                 });
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -535,7 +535,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -548,7 +548,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -611,7 +611,7 @@ export class Kodo implements Adapter {
                         } else {
                             resolve(results);
                         }
-                    }, (error) => {
+                    }).catch((error) => {
                         let aborted = false;
                         const results: Array<PartialObjectError> = batch.map((transferObject, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
@@ -639,7 +639,7 @@ export class Kodo implements Adapter {
                     results = results.concat(batch);
                 }
                 resolve(results);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -695,7 +695,7 @@ export class Kodo implements Adapter {
                         } else {
                             resolve(results);
                         }
-                    }, (error) => {
+                    }).catch((error) => {
                         let aborted = false;
                         const results: Array<PartialObjectError> = batch.map((key, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
@@ -723,7 +723,7 @@ export class Kodo implements Adapter {
                     results = results.concat(batch);
                 }
                 resolve(results);
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -736,7 +736,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -763,7 +763,7 @@ export class Kodo implements Adapter {
                 } else {
                     resolve({ status: 'Normal' });
                 }
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -776,7 +776,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 
@@ -807,36 +807,40 @@ export class Kodo implements Adapter {
         this.client.call({
             method: 'POST',
             serviceName: ServiceName.Rsf,
-            path: 'list',
-            dataType: 'json',
+            path: 'v2/list',
             s3RegionId: s3RegionId,
             query: query,
             contentType: 'application/x-www-form-urlencoded',
         }).then((response) => {
-            let isEmpty = true;
+            let marker: string | undefined = undefined;
             delete results.nextContinuationToken;
 
-            if (response.data.items && response.data.items.length > 0) {
-                isEmpty = false;
-                results.objects = results.objects.concat(response.data.items.map((item: any) => {
-                    return {
-                        bucket: bucket, key: item.key, size: item.fsize,
-                        lastModified: new Date(item.putTime / 10000), storageClass: toStorageClass(item.type),
-                    };
-                }));
-            }
-            if (response.data.commonPrefixes && response.data.commonPrefixes.length > 0) {
-                isEmpty = false;
-                if (!results.commonPrefixes) {
-                    results.commonPrefixes = [];
+            const lines = response.data.toString().split(/\s*\n+\s*/);
+
+            lines.forEach((line: string) => {
+                if (line === '') {
+                    return;
                 }
-                results.commonPrefixes = results.commonPrefixes.concat(response.data.commonPrefixes.map((commonPrefix: string) => {
-                    return { bucket: bucket, key: commonPrefix };
-                }));
-            }
-            if (!isEmpty && response.data.marker) {
-                newOption.nextContinuationToken = response.data.marker;
-                results.nextContinuationToken = response.data.marker;
+                const data = JSON.parse(line);
+                if (data.item) {
+                    results.objects.push({
+                        bucket: bucket, key: data.item.key, size: data.item.fsize,
+                        lastModified: new Date(data.item.putTime / 10000), storageClass: toStorageClass(data.item.type),
+                    });
+                } else if (data.dir) {
+                    if (results.commonPrefixes === undefined) {
+                        results.commonPrefixes = [];
+                    }
+                    results.commonPrefixes.push({
+                        bucket: bucket, key: data.dir,
+                    });
+                }
+                marker = data.marker;
+            });
+
+            if (marker) {
+                newOption.nextContinuationToken = marker;
+                results.nextContinuationToken = marker;
                 if (option?.minKeys) {
                     let resultsSize = results.objects.length;
                     if (results.commonPrefixes) {
@@ -851,7 +855,7 @@ export class Kodo implements Adapter {
                 }
             }
             resolve(results);
-        }, reject);
+        }).catch(reject);
     }
 
     createMultipartUpload(s3RegionId: string, object: Object, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
@@ -868,7 +872,7 @@ export class Kodo implements Adapter {
                 headers: { 'authorization': `UpToken ${token}` },
             }).then((response) => {
                 resolve({ uploadId: response.data.uploadId });
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -892,7 +896,7 @@ export class Kodo implements Adapter {
                 uploadThrottle: option?.throttle,
             }).then((response) => {
                 resolve({ etag: response.data.etag });
-            }, reject);
+            }).catch(reject);
         });
     }
 
@@ -919,7 +923,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 headers: { 'authorization': `UpToken ${token}` },
-            }).then(() => { resolve(); }, reject);
+            }).then(() => { resolve(); }).catch(reject);
         });
     }
 }

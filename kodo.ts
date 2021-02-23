@@ -12,7 +12,7 @@ import { Readable } from 'stream';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
     InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
@@ -242,16 +242,9 @@ export class Kodo implements Adapter {
 
     isExists(s3RegionId: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
-            this.client.call({
-                method: 'GET',
-                serviceName: ServiceName.Rs,
-                path: `stat/${encodeObject(object)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then((_response) => {
+            this.getObjectInfo(s3RegionId, object).then(() => {
                 resolve(true);
-            }).catch((error) => {
+            }).catch((error: any) => {
                 if (error.message === 'no such file or directory') {
                     resolve(false);
                 } else {
@@ -462,6 +455,24 @@ export class Kodo implements Adapter {
                     url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
                 }
                 resolve(url);
+            }).catch(reject);
+        });
+    }
+
+    getObjectInfo(s3RegionId: string, object: Object): Promise<ObjectInfo> {
+        return new Promise((resolve, reject) => {
+            this.client.call({
+                method: 'GET',
+                serviceName: ServiceName.Rs,
+                path: `stat/${encodeObject(object)}`,
+                dataType: 'json',
+                s3RegionId: s3RegionId,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then((response) => {
+                resolve({
+                    bucket: object.bucket, key: response.data.key, size: response.data.fsize,
+                    lastModified: new Date(response.data.putTime / 10000), storageClass: toStorageClass(response.data.type),
+                });
             }).catch(reject);
         });
     }

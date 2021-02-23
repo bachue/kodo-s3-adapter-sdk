@@ -9,7 +9,7 @@ import { Semaphore } from 'semaphore-promise';
 import { RegionService } from './region_service';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader,
+import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
          TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption, PutObjectOption,
     InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
 
@@ -247,15 +247,15 @@ export class S3 implements Adapter {
 
     isExists(s3RegionId: string, object: Object): Promise<boolean> {
         return new Promise((resolve, reject) => {
-            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }), (data: any) => {
-                    if (data.Contents && data.Contents.length > 0) {
-                        resolve(data.Contents[0].Key === object.key);
-                    } else {
-                        resolve(false);
-                    }
-                }, reject);
-            }).catch(reject);
+            this.getObjectInfo(s3RegionId, object).then(() => {
+                resolve(true);
+            }).catch((error: any) => {
+                if (error.message === 'no such file or directory') {
+                    resolve(false);
+                } else {
+                    reject(error);
+                }
+            });
         });
     }
 
@@ -343,6 +343,25 @@ export class S3 implements Adapter {
                 }
                 const url = s3.getSignedUrl('getObject', { Bucket: bucketId, Key: object.key, Expires: expires });
                 resolve(new URL(url));
+            }).catch(reject);
+        });
+    }
+
+    getObjectInfo(s3RegionId: string, object: Object): Promise<ObjectInfo> {
+        return new Promise((resolve, reject) => {
+            Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
+                this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }), (data: any) => {
+                    if (data.Contents && data.Contents.length > 0) {
+                        if (data.Contents[0].Key === object.key) {
+                            resolve({
+                                bucket: object.bucket, key: data.Contents[0].Key!, size: data.Contents[0].Size!,
+                                lastModified: data.Contents[0].LastModified!, storageClass: toStorageClass(data.Contents[0].StorageClass),
+                            });
+                            return;
+                        }
+                    }
+                    reject(new Error('no such file or directory'));
+                }, reject);
             }).catch(reject);
         });
     }

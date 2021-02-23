@@ -37,6 +37,12 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const key = `4k-${Math.floor(Math.random() * (2**64 -1))}`;
 
                 try {
+                    await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    assert.fail();
+                } catch {
+                }
+
+                try {
                     await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: key });
                     assert.fail();
                 } catch {
@@ -57,6 +63,11 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.copyObject(bucketRegionId, { from: { bucket: bucketName, key: key }, to: { bucket: bucketName, key: keyCopied } });
 
                 {
+                    const info = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: keyCopied });
+                    expect(info.size).to.equal(1 << 12);
+                }
+
+                {
                     const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: keyCopied });
                     expect(header.size).to.equal(1 << 12);
                     expect(header.metadata['key-a']).to.equal('Value-A');
@@ -69,6 +80,11 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                 const keyMoved = `${key}-move`;
                 await qiniuAdapter.moveObject(bucketRegionId, { from: { bucket: bucketName, key: key }, to: { bucket: bucketName, key: keyMoved } });
+
+                {
+                    const header = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: keyMoved });
+                    expect(header.size).to.equal(1 << 12);
+                }
 
                 {
                     const header = await qiniuAdapter.getObjectHeader(bucketRegionId, { bucket: bucketName, key: keyMoved });
@@ -364,6 +380,11 @@ process.on('uncaughtException', (err: any, origin: any) => {
                         });
                         readable.on('error', reject);
                     });
+                }
+
+                {
+                    const info = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(info.size).to.equal(1 << 12);
                 }
 
                 {

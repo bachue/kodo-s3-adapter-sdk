@@ -643,9 +643,10 @@ export class S3 implements Adapter {
                     return { bucket: bucket, key: commonPrefix.Prefix! };
                 }));
             }
+
+            results.nextContinuationToken = data.NextMarker;
             if (!isEmpty && data.NextMarker) {
                 newOption.nextContinuationToken = data.NextMarker;
-                results.nextContinuationToken = data.NextMarker;
                 if (option?.minKeys) {
                     let resultsSize = results.objects.length;
                     if (results.commonPrefixes) {

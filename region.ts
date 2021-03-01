@@ -73,6 +73,7 @@ export class Region {
 
                     try {
                         if (response.status >= 200 && response.status < 400) {
+                            response.data.regions ??= [];
                             const regions: Array<Region> = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
                             resolve(regions);
                         } else {

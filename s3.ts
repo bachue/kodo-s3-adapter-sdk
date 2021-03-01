@@ -623,10 +623,8 @@ export class S3 implements Adapter {
             delimiter: option?.delimiter,
         };
         this.sendS3Request(s3.listObjects(params), (data: any) => {
-            let isEmpty = true;
             delete results.nextContinuationToken;
             if (data.Contents && data.Contents.length > 0) {
-                isEmpty = false;
                 results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
                     return {
                         bucket: bucket, key: object.Key!, size: object.Size!,
@@ -635,7 +633,6 @@ export class S3 implements Adapter {
                 }));
             }
             if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
-                isEmpty = false;
                 if (!results.commonPrefixes) {
                     results.commonPrefixes = [];
                 }
@@ -645,7 +642,7 @@ export class S3 implements Adapter {
             }
 
             results.nextContinuationToken = data.NextMarker;
-            if (!isEmpty && data.NextMarker) {
+            if (data.NextMarker) {
                 newOption.nextContinuationToken = data.NextMarker;
                 if (option?.minKeys) {
                     let resultsSize = results.objects.length;

@@ -206,7 +206,7 @@ export class KodoHttpClient {
 
     private isRetry(response: HttpClientResponse<any>): boolean {
         const dontRetryStatusCodes: Array<number> = [501, 579, 599, 608, 612, 614, 616,
-                                                     618, 630, 631, 632, 640, 701];
+            618, 630, 631, 632, 640, 701];
         return !response.headers['x-reqid'] ||
             response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);
     }
@@ -220,12 +220,12 @@ export class KodoHttpClient {
         let protocol: HttpProtocol | undefined = this.sharedOptions.protocol;
         if (protocol) {
             switch (protocol) {
-            case "http":
-                url.protocol = "http";
-                break;
-            case "https":
-                url.protocol = "https";
-                break;
+                case "http":
+                    url.protocol = "http";
+                    break;
+                case "https":
+                    url.protocol = "https";
+                    break;
             }
         }
         if (options.query) {
@@ -300,20 +300,22 @@ export class KodoHttpClient {
 
     private getUrlsFromRegion(serviceName: ServiceName, region: Region): Array<string> {
         switch (serviceName) {
-        case ServiceName.Up:
-            return [...region.upUrls];
-        case ServiceName.Uc:
-            return [...region.ucUrls];
-        case ServiceName.Rs:
-            return [...region.rsUrls];
-        case ServiceName.Rsf:
-            return [...region.rsfUrls];
-        case ServiceName.Api:
-            return [...region.apiUrls];
-        case ServiceName.S3:
-            return [...region.s3Urls];
-        case ServiceName.Portal:
-            return ['https://portal.qiniu.com'];
+            case ServiceName.Up:
+                return [...region.upUrls];
+            case ServiceName.Uc:
+                return [...region.ucUrls];
+            case ServiceName.Rs:
+                return [...region.rsUrls];
+            case ServiceName.Rsf:
+                return [...region.rsfUrls];
+            case ServiceName.Api:
+                return [...region.apiUrls];
+            case ServiceName.S3:
+                return [...region.s3Urls];
+            case ServiceName.Qcdn:
+                return ['https://api.qiniu.com'];
+            case ServiceName.Portal:
+                return ['https://portal.qiniu.com'];
         }
     }
 }
@@ -325,6 +327,7 @@ export enum ServiceName {
     Rsf,
     Api,
     S3,
+    Qcdn,
     Portal,
 }
 

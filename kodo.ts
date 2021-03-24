@@ -12,9 +12,11 @@ import { Readable } from 'stream';
 import { HttpClient2, HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
-    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
+import {
+    Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
+    TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
+    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo
+} from './adapter';
 import { KodoHttpClient, ServiceName } from './kodo-http-client';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -85,7 +87,7 @@ export class Kodo implements Adapter {
             }).then((response) => {
                 const kodoRegionId = response.data.region;
                 this.regionService.fromKodoRegionIdToS3Id(kodoRegionId)
-                                  .then(resolve).catch(reject);
+                    .then(resolve).catch(reject);
             }).catch(reject);
         });
     }
@@ -105,7 +107,7 @@ export class Kodo implements Adapter {
                 const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
                     return new Promise((resolve) => {
                         this.regionService.fromKodoRegionIdToS3Id(info.region)
-                                          .then(resolve).catch(() => { resolve(undefined); });
+                            .then(resolve).catch(() => { resolve(undefined); });
                     });
                 });
                 Promise.all(regionsPromises).then((regionsInfo: Array<string | undefined>) => {
@@ -148,7 +150,7 @@ export class Kodo implements Adapter {
             const promises = [
                 this.client.call({
                     method: 'GET',
-                    serviceName: ServiceName.Api,
+                    serviceName: ServiceName.Qcdn,
                     path: 'domain',
                     query: domainsQuery,
                     dataType: 'json',
@@ -186,12 +188,12 @@ export class Kodo implements Adapter {
                 } else {
                     const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
                         switch (domain.type) {
-                        case 'normal':
-                        case 'pan':
-                        case 'test':
-                            return true;
-                        default:
-                            return false;
+                            case 'normal':
+                            case 'pan':
+                            case 'test':
+                                return true;
+                            default:
+                                return false;
                         }
                     }).map((domain: any) => {
                         return {
@@ -268,10 +270,10 @@ export class Kodo implements Adapter {
     }
 
     putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-              header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
+        header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
-            const form =  new FormData();
+            const form = new FormData();
             form.append('key', object.key);
             form.append('token', token);
             if (header?.metadata) {
@@ -333,7 +335,7 @@ export class Kodo implements Adapter {
 
                     try {
                         if (response.status === 200) {
-                            resolve({ data: response.data, header: getObjectHeader(response)});
+                            resolve({ data: response.data, header: getObjectHeader(response) });
                         } else {
                             const error = new Error(response.res.statusMessage);
                             responseInfo.error = error;
@@ -439,9 +441,9 @@ export class Kodo implements Adapter {
                     }
                     const domainTypeScope = (domain: Domain): number => {
                         switch (domain.type) {
-                        case 'normal': return 1;
-                        case 'pan': return 2;
-                        case 'test': return 3;
+                            case 'normal': return 1;
+                            case 'pan': return 2;
+                            case 'test': return 3;
                         }
                     };
                     domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
@@ -947,14 +949,14 @@ export class Kodo implements Adapter {
 
 function toStorageClass(type?: number): StorageClass {
     switch (type ?? 0) {
-    case 0:
-        return 'Standard';
-    case 1:
-        return 'InfrequentAccess';
-    case 2:
-        return 'Glacier';
-    default:
-        throw new Error(`Unknown file type: ${type}`);
+        case 0:
+            return 'Standard';
+        case 1:
+            return 'InfrequentAccess';
+        case 2:
+            return 'Glacier';
+        default:
+            throw new Error(`Unknown file type: ${type}`);
     }
 }
 

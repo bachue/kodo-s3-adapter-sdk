@@ -6,28 +6,29 @@ import md5 from 'js-md5';
 import { URL } from 'url';
 import { Readable } from 'stream';
 import { Semaphore } from 'semaphore-promise';
-import { RegionService } from './region_service';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
-import { Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
-         TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption, PutObjectOption,
-    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo } from './adapter';
+import {
+    Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
+    TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListedObjects, ListObjectsOption, PutObjectOption,
+    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption, RequestInfo, ResponseInfo
+} from './adapter';
+import { LogType, RequestUplogEntry, SdkApiUplogEntry, getErrorTypeFromStatusCode, getErrorTypeFromS3Error } from './uplog';
+import { RequestStats } from './http-client';
+import { GetAllRegionsOptions } from './region_service';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
-export class S3 implements Adapter {
+interface RequestOptions {
+    stats?: RequestStats,
+}
+
+export class S3 extends Kodo {
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
     private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
     private readonly bucketNameToIdCacheLock = new AsyncLock();
     private readonly clientsLock = new AsyncLock();
-    private readonly kodo: Kodo;
-    private readonly regionService: RegionService;
-
-    constructor(private readonly adapterOption: AdapterOption) {
-        this.kodo = new Kodo(adapterOption);
-        this.regionService = new RegionService(adapterOption);
-    }
 
     private getClient(s3RegionId?: string): Promise<AWS.S3> {
         return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ export class S3 implements Adapter {
                     if (this.adapterOption.appendedUserAgent) {
                         userAgent += `/${this.adapterOption.appendedUserAgent}`;
                     }
-                    this.regionService.getS3Endpoint(s3RegionId).then((s3IdEndpoint) => {
+                    this.regionService.getS3Endpoint(s3RegionId, this.getAllRegionsOptions()).then((s3IdEndpoint) => {
                         resolve(new AWS.S3({
                             apiVersion: "2006-03-01",
                             customUserAgent: userAgent,
@@ -51,7 +52,6 @@ export class S3 implements Adapter {
                             endpoint: s3IdEndpoint.s3Endpoint,
                             accessKeyId: this.adapterOption.accessKey,
                             secretAccessKey: this.adapterOption.secretKey,
-                            // logger: console, TODO: Use Adapter Option here
                             maxRetries: 10,
                             s3ForcePathStyle: true,
                             signatureVersion: "v4",
@@ -82,7 +82,7 @@ export class S3 implements Adapter {
                         resolve();
                         return;
                     }
-                    this.kodo.listBucketIdNames().then((buckets) => {
+                    super.listBucketIdNames().then((buckets) => {
                         buckets.forEach((bucket) => {
                             this.bucketNameToIdCache[bucket.name] = bucket.id;
                             this.bucketIdToNameCache[bucket.id] = bucket.name;
@@ -112,7 +112,7 @@ export class S3 implements Adapter {
                         resolve();
                         return;
                     }
-                    this.kodo.listBucketIdNames().then((buckets) => {
+                    super.listBucketIdNames().then((buckets) => {
                         buckets.forEach((bucket) => {
                             this.bucketNameToIdCache[bucket.name] = bucket.id;
                             this.bucketIdToNameCache[bucket.id] = bucket.name;
@@ -130,46 +130,88 @@ export class S3 implements Adapter {
         });
     }
 
-    private sendS3Request<D, E>(request: AWS.Request<D, E>, resolve: any, reject: any) {
+    enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>): Promise<T> {
+        const scope = new S3Scope(sdkApiName, this.adapterOption);
+        return f(scope).finally(() => { scope.done() });
+    }
+
+    private sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
         let requestInfo: RequestInfo | undefined = undefined;
         const beginTime = new Date().getTime();
+        const uplog: RequestUplogEntry = {
+            log_type: LogType.Request,
+            host: request.httpRequest.endpoint.host,
+            port: request.httpRequest.endpoint.port,
+            method: request.httpRequest.method,
+            path: request.httpRequest.path,
+            total_elapsed_time: 0,
+        };
+        const options = this.getRequestsOption();
 
-        request.on('sign', (request) => {
-            let url = request.httpRequest.endpoint.href;
-            if (url.endsWith('/') && request.httpRequest.path.startsWith('/')) {
-                url += request.httpRequest.path.substring(1);
-            } else {
-                url += request.httpRequest.path;
-            }
-            requestInfo = {
-                url: url,
-                method: request.httpRequest.method,
-                headers: request.httpRequest.headers,
-            };
-            if (this.adapterOption.requestCallback) {
-                this.adapterOption.requestCallback(requestInfo);
-            }
-        });
-        request.on('complete', (response) => {
-            const responseInfo: ResponseInfo = {
-                request: requestInfo!,
-                statusCode: response.httpResponse.statusCode,
-                headers: response.httpResponse.headers,
-                data: response.data,
-                error: response.error,
-                interval: new Date().getTime() - beginTime,
-            };
-            if (this.adapterOption.responseCallback) {
-                this.adapterOption.responseCallback(responseInfo);
-            }
-        });
+        return new Promise((resolve, reject) => {
+            request.on('sign', (request) => {
+                if (options.stats) {
+                    options.stats.requestsCount += 1;
+                }
+                let url = request.httpRequest.endpoint.href;
+                if (url.endsWith('/') && request.httpRequest.path.startsWith('/')) {
+                    url += request.httpRequest.path.substring(1);
+                } else {
+                    url += request.httpRequest.path;
+                }
+                uplog.host = request.httpRequest.endpoint.host;
+                uplog.port = request.httpRequest.endpoint.port;
+                uplog.method = request.httpRequest.method;
+                uplog.path = request.httpRequest.path;
+                requestInfo = {
+                    url: url,
+                    method: request.httpRequest.method,
+                    headers: request.httpRequest.headers,
+                };
+                if (this.adapterOption.requestCallback) {
+                    this.adapterOption.requestCallback(requestInfo);
+                }
+            });
+            request.on('complete', (response) => {
+                const responseInfo: ResponseInfo = {
+                    request: requestInfo!,
+                    statusCode: response.httpResponse.statusCode,
+                    headers: response.httpResponse.headers,
+                    data: response.data,
+                    error: response.error,
+                    interval: new Date().getTime() - beginTime,
+                };
+                uplog.status_code = response.httpResponse.statusCode;
+                uplog.total_elapsed_time = responseInfo.interval;
+                if (response.requestId) {
+                    uplog.req_id = response.requestId;
+                }
+                if (response.error) {
+                    if (response.httpResponse.statusCode) {
+                        uplog.error_type = getErrorTypeFromStatusCode(response.httpResponse.statusCode);
+                    } else {
+                        uplog.error_type = getErrorTypeFromS3Error(response.error);
+                    }
+                    uplog.error_description = (response.error as any).message || (response.error as any).code;
+                    if (options.stats) {
+                        options.stats.errorType = uplog.error_type;
+                        options.stats.errorDescription = uplog.error_description;
+                    }
+                }
+                this.log(uplog);
 
-        request.send((err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(data);
-            }
+                if (this.adapterOption.responseCallback) {
+                    this.adapterOption.responseCallback(responseInfo);
+                }
+            });
+
+            request.send((err, data) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(data);
+                }
+            });
         });
     }
 
@@ -181,7 +223,7 @@ export class S3 implements Adapter {
                     CreateBucketConfiguration: {
                         LocationConstraint: s3RegionId,
                     },
-                }), resolve, reject);
+                })).then(() => { resolve(); }).catch(reject);
             }, reject).catch(reject);
         });
     }
@@ -189,7 +231,8 @@ export class S3 implements Adapter {
     deleteBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.deleteBucket({ Bucket: bucketId }), resolve, reject);
+                this.sendS3Request(s3.deleteBucket({ Bucket: bucketId })).
+                    then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
@@ -197,46 +240,44 @@ export class S3 implements Adapter {
     getBucketLocation(bucket: string): Promise<string> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
-                this._getBucketLocation(s3, bucketId, resolve, reject);
+                this._getBucketLocation(s3, bucketId).then(resolve).catch(reject);
             }).catch(reject);
         });
     }
 
-    private _getBucketLocation(s3: AWS.S3, bucketId: string, resolve: any, reject: any): void {
-        this.sendS3Request(s3.getBucketLocation({ Bucket: bucketId }), (data: any) => {
-            const s3RegionId: string = data.LocationConstraint!;
-            resolve(s3RegionId);
-        }, reject);
+    private _getBucketLocation(s3: AWS.S3, bucketId: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            this.sendS3Request(s3.getBucketLocation({ Bucket: bucketId })).then((data: any) => {
+                const s3RegionId: string = data.LocationConstraint!;
+                resolve(s3RegionId);
+            }).catch(reject);
+        });
     }
 
     listBuckets(): Promise<Array<Bucket>> {
         return new Promise((resolve, reject) => {
             this.getClient().then((s3) => {
-                this.sendS3Request(s3.listBuckets(), (data: any) => {
+                this.sendS3Request(s3.listBuckets()).then((data: any) => {
                     const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
                         return this.fromS3BucketIdToKodoBucketName(info.Name);
                     });
                     const bucketLocationPromises: Array<Promise<string | undefined>> = data.Buckets!.map((info: any) => {
                         return new Promise((resolve) => {
-                            this.sendS3Request(s3.getBucketLocation({ Bucket: info.Name }), (data: any) => {
-                                resolve(data.LocationConstraint);
-                            }, () => {
-                                resolve(undefined);
-                            });
+                            this._getBucketLocation(s3, info.Name).then(resolve, () => { resolve(undefined); });
                         });
                     });
                     Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])
                         .then(([bucketNames, bucketLocations]) => {
-                        const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
-                            return {
-                                id: info.Name, name: bucketNames[index],
-                                createDate: info.CreationDate,
-                                regionId: bucketLocations[index],
-                            };
-                        });
-                        resolve(bucketInfos);
-                    }).catch(reject);
-                }, reject);
+                            const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
+                                return {
+                                    id: info.Name, name: bucketNames[index],
+                                    createDate: info.CreationDate,
+                                    regionId: bucketLocations[index],
+                                };
+                            });
+                            resolve(bucketInfos);
+                        }).catch(reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -262,13 +303,14 @@ export class S3 implements Adapter {
     deleteObject(s3RegionId: string, object: Object): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.deleteObject({ Bucket: bucketId, Key: object.key }), resolve, reject);
+                this.sendS3Request(s3.deleteObject({ Bucket: bucketId, Key: object.key })).
+                    then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
 
     putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-              header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
+        header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 let dataSource: Readable | Buffer;
@@ -301,7 +343,7 @@ export class S3 implements Adapter {
                         option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
-                this.sendS3Request(uploader, resolve, reject);
+                this.sendS3Request(uploader).then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
@@ -309,12 +351,12 @@ export class S3 implements Adapter {
     getObject(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.getObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                this.sendS3Request(s3.getObject({ Bucket: bucketId, Key: object.key })).then((data: any) => {
                     resolve({
                         data: Buffer.from(data.Body!),
                         header: { size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! },
                     });
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -350,7 +392,7 @@ export class S3 implements Adapter {
     getObjectInfo(s3RegionId: string, object: Object): Promise<ObjectInfo> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }), (data: any) => {
+                this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key })).then((data: any) => {
                     if (data.Contents && data.Contents.length > 0) {
                         if (data.Contents[0].Key === object.key) {
                             resolve({
@@ -361,7 +403,7 @@ export class S3 implements Adapter {
                         }
                     }
                     reject(new Error('no such file or directory'));
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -369,9 +411,9 @@ export class S3 implements Adapter {
     getObjectHeader(s3RegionId: string, object: Object, _domain?: Domain): Promise<ObjectHeader> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key })).then((data: any) => {
                     resolve({ size: data.ContentLength!, contentType: data.ContentType!, lastModified: data.LastModified!, metadata: data.Metadata! });
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -404,7 +446,8 @@ export class S3 implements Adapter {
                     MetadataDirective: 'COPY',
                     StorageClass: storageClass,
                 };
-                this.sendS3Request(s3.copyObject(params), resolve, reject);
+                this.sendS3Request(s3.copyObject(params)).
+                    then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
@@ -412,9 +455,9 @@ export class S3 implements Adapter {
     private getObjectStorageClass(s3RegionId: string, object: Object): Promise<string | undefined> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key })).then((data: any) => {
                     resolve(data.StorageClass);
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -499,7 +542,7 @@ export class S3 implements Adapter {
                                 Delete: {
                                     Objects: batch.map((key) => { return { Key: key }; }),
                                 },
-                            }), (results: any) => {
+                            })).then((results: any) => {
                                 let aborted = false;
                                 if (results.Deleted) {
                                     results.Deleted.forEach((deletedObject: any) => {
@@ -531,8 +574,7 @@ export class S3 implements Adapter {
                                 } else {
                                     resolve(partialObjectErrors);
                                 }
-                                release();
-                            }, (err: any) => {
+                            }).catch((err: any) => {
                                 let aborted = false;
                                 if (err) {
                                     batch.forEach((key, index) => {
@@ -547,8 +589,7 @@ export class S3 implements Adapter {
                                 } else {
                                     resolve(partialObjectErrors);
                                 }
-                                release();
-                            });
+                            }).finally(release);
                         });
                     });
                 });
@@ -566,7 +607,7 @@ export class S3 implements Adapter {
     getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }), (data: any) => {
+                this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key })).then((data: any) => {
                     if (data.StorageClass?.toLowerCase() === 'glacier') {
                         if (data.Restore) {
                             const restoreInfo = parseRestoreInfo(data.Restore);
@@ -586,7 +627,7 @@ export class S3 implements Adapter {
                     } else {
                         resolve({ status: 'Normal' });
                     }
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -601,7 +642,8 @@ export class S3 implements Adapter {
                         GlacierJobParameters: { Tier: 'Standard' },
                     },
                 };
-                this.sendS3Request(s3.restoreObject(params), resolve, reject);
+                this.sendS3Request(s3.restoreObject(params)).
+                    then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
@@ -610,55 +652,59 @@ export class S3 implements Adapter {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 const results: ListedObjects = { objects: [] };
-                this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, option);
+                this._listS3Objects(s3RegionId, s3, bucket, bucketId, prefix, results, option).
+                    then(resolve).catch(reject);
             }).catch(reject);
         });
     }
 
-    private _listObjects(s3RegionId: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
+    private _listS3Objects(s3RegionId: string, s3: AWS.S3, bucket: string, bucketId: string, prefix: string, results: ListedObjects, option?: ListObjectsOption): Promise<ListedObjects> {
         const params: AWS.S3.Types.ListObjectsRequest = {
             Bucket: bucketId, Delimiter: option?.delimiter, Marker: option?.nextContinuationToken, MaxKeys: option?.maxKeys, Prefix: prefix,
         };
         const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,
         };
-        this.sendS3Request(s3.listObjects(params), (data: any) => {
-            delete results.nextContinuationToken;
-            if (data.Contents && data.Contents.length > 0) {
-                results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
-                    return {
-                        bucket: bucket, key: object.Key!, size: object.Size!,
-                        lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
-                    };
-                }));
-            }
-            if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
-                if (!results.commonPrefixes) {
-                    results.commonPrefixes = [];
+        return new Promise((resolve, reject) => {
+            this.sendS3Request(s3.listObjects(params)).then((data: any) => {
+                delete results.nextContinuationToken;
+                if (data.Contents && data.Contents.length > 0) {
+                    results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
+                        return {
+                            bucket: bucket, key: object.Key!, size: object.Size!,
+                            lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
+                        };
+                    }));
                 }
-                results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
-                    return { bucket: bucket, key: commonPrefix.Prefix! };
-                }));
-            }
+                if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+                    if (!results.commonPrefixes) {
+                        results.commonPrefixes = [];
+                    }
+                    results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
+                        return { bucket: bucket, key: commonPrefix.Prefix! };
+                    }));
+                }
 
-            results.nextContinuationToken = data.NextMarker;
-            if (data.NextMarker) {
-                newOption.nextContinuationToken = data.NextMarker;
-                if (option?.minKeys) {
-                    let resultsSize = results.objects.length;
-                    if (results.commonPrefixes) {
-                        resultsSize += results.commonPrefixes.length;
-                    }
-                    if (resultsSize < option.minKeys) {
-                        newOption.minKeys = option.minKeys;
-                        newOption.maxKeys = option.minKeys - resultsSize;
-                        this._listObjects(s3RegionId, s3, bucket, bucketId, prefix, resolve, reject, results, newOption);
-                        return;
+                results.nextContinuationToken = data.NextMarker;
+                if (data.NextMarker) {
+                    newOption.nextContinuationToken = data.NextMarker;
+                    if (option?.minKeys) {
+                        let resultsSize = results.objects.length;
+                        if (results.commonPrefixes) {
+                            resultsSize += results.commonPrefixes.length;
+                        }
+                        if (resultsSize < option.minKeys) {
+                            newOption.minKeys = option.minKeys;
+                            newOption.maxKeys = option.minKeys - resultsSize;
+                            this._listS3Objects(s3RegionId, s3, bucket, bucketId, prefix, results, newOption).
+                                then(resolve).catch(reject);
+                            return;
+                        }
                     }
                 }
-            }
-            resolve(results);
-        }, reject);
+                resolve(results);
+            }).catch(reject);
+        });
     }
 
     createMultipartUpload(s3RegionId: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput> {
@@ -670,9 +716,9 @@ export class S3 implements Adapter {
                 if (header?.contentType) {
                     params.ContentType = header!.contentType;
                 }
-                this.sendS3Request(s3.createMultipartUpload(params), (data: any) => {
+                this.sendS3Request(s3.createMultipartUpload(params)).then((data: any) => {
                     resolve({ uploadId: data.UploadId! });
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -703,9 +749,9 @@ export class S3 implements Adapter {
                         option.progressCallback!(progress.loaded, progress.total);
                     });
                 }
-                this.sendS3Request(uploader, (data: any) => {
+                this.sendS3Request(uploader).then((data: any) => {
                     resolve({ etag: data.ETag! });
-                }, reject);
+                }).catch(reject);
             }).catch(reject);
         });
     }
@@ -721,7 +767,8 @@ export class S3 implements Adapter {
                         }),
                     },
                 };
-                this.sendS3Request(s3.completeMultipartUpload(params), resolve, reject);
+                this.sendS3Request(s3.completeMultipartUpload(params))
+                    .then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });
     }
@@ -730,8 +777,56 @@ export class S3 implements Adapter {
         Object.keys(this.bucketNameToIdCache).forEach((key) => { delete this.bucketNameToIdCache[key]; });
         Object.keys(this.bucketIdToNameCache).forEach((key) => { delete this.bucketIdToNameCache[key]; });
         Object.keys(this.clients).forEach((key) => { delete this.clients[key]; });
-        this.kodo.clearCache();
+        super.clearCache();
         this.regionService.clearCache();
+    }
+
+    protected getRequestsOption(): RequestOptions {
+        return {};
+    }
+}
+
+class S3Scope extends S3 {
+    private readonly requestStats: RequestStats;
+    private readonly beginTime = new Date();
+
+    constructor(sdkApiName: string, adapterOption: AdapterOption) {
+        super(adapterOption);
+        this.requestStats = {
+            sdkApiName: sdkApiName,
+            requestsCount: 0,
+        };
+    }
+
+    done() {
+        const uplog: SdkApiUplogEntry = {
+            log_type: LogType.SdkApi,
+            api_name: this.requestStats.sdkApiName,
+            requests_count: this.requestStats.requestsCount,
+            total_elapsed_time: new Date().getTime() - this.beginTime.getTime(),
+        };
+        if (this.requestStats.errorType) {
+            uplog.error_type = this.requestStats.errorType;
+        }
+        if (this.requestStats.errorDescription) {
+            uplog.error_description = this.requestStats.errorDescription;
+        }
+        this.requestStats.requestsCount = 0;
+        this.requestStats.errorType = undefined;
+        this.requestStats.errorDescription = undefined;
+        this.log(uplog);
+    }
+
+    protected getRequestsOption(): RequestOptions {
+        const options = super.getRequestsOption();
+        options.stats = this.requestStats;
+        return options;
+    }
+
+    protected getAllRegionsOptions(): GetAllRegionsOptions {
+        const options = super.getAllRegionsOptions();
+        options.stats = this.requestStats;
+        return options;
     }
 }
 

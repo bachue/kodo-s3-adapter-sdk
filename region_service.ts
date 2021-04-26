@@ -1,10 +1,18 @@
 import AsyncLock from 'async-lock';
 import { Region } from './region';
 import { AdapterOption } from './adapter';
+import { RequestStats } from './http-client';
 
 export interface S3IdEndpoint {
     s3Id: string,
     s3Endpoint: string,
+}
+
+export interface GetAllRegionsOptions {
+    timeout?: number | number[];
+    retry?: number;
+    retryDelay?: number;
+    stats?: RequestStats,
 }
 
 export class RegionService {
@@ -14,7 +22,7 @@ export class RegionService {
     constructor(private readonly adapterOption: AdapterOption) {
     }
 
-    getAllRegions(): Promise<Array<Region>> {
+    getAllRegions(options?: GetAllRegionsOptions): Promise<Array<Region>> {
         return new Promise((resolve, reject) => {
             if (this.adapterOption.regions.length > 0) {
                 resolve(this.adapterOption.regions);
@@ -29,8 +37,15 @@ export class RegionService {
                         accessKey: this.adapterOption.accessKey,
                         secretKey: this.adapterOption.secretKey,
                         ucUrl: this.adapterOption.ucUrl,
+                        timeout: options?.timeout,
+                        retry: options?.retry,
+                        retryDelay: options?.retryDelay,
+                        appName: this.adapterOption.appName,
+                        appVersion: this.adapterOption.appVersion,
+                        uplogBufferSize: this.adapterOption.uplogBufferSize,
                         requestCallback: this.adapterOption.requestCallback,
                         responseCallback: this.adapterOption.responseCallback,
+                        stats: options?.stats,
                     });
                 }).then((regions: Array<Region>) => {
                     this.allRegions = regions;
@@ -44,7 +59,7 @@ export class RegionService {
         this.allRegions = undefined;
     }
 
-    getS3Endpoint(s3RegionId?: string): Promise<S3IdEndpoint> {
+    getS3Endpoint(s3RegionId?: string, options?: GetAllRegionsOptions): Promise<S3IdEndpoint> {
         return new Promise((resolve, reject) => {
             let queryCondition: (region: Region) => boolean;
 
@@ -64,11 +79,11 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions).catch(reject);
+            this.getAllRegions(options).then(queryInRegions).catch(reject);
         });
     }
 
-    fromKodoRegionIdToS3Id(regionId: string): Promise<string> {
+    fromKodoRegionIdToS3Id(regionId: string, options?: GetAllRegionsOptions): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.id === regionId;
             const queryInRegions: (regions: Array<Region>) => void = (regions) => {
@@ -80,11 +95,11 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions).catch(reject);
+            this.getAllRegions(options).then(queryInRegions).catch(reject);
         });
     }
 
-    fromS3IdToKodoRegionId(s3Id: string): Promise<string> {
+    fromS3IdToKodoRegionId(s3Id: string, options?: GetAllRegionsOptions): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.s3Id === s3Id;
             const queryInRegions: (regions: Array<Region>) => void = (regions) => {
@@ -96,7 +111,7 @@ export class RegionService {
                 }
             };
 
-            this.getAllRegions().then(queryInRegions).catch(reject);
+            this.getAllRegions(options).then(queryInRegions).catch(reject);
         });
     }
 }

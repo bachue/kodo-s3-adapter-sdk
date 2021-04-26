@@ -1,24 +1,17 @@
 import AsyncLock from 'async-lock';
-import http from 'http';
 import FormData from 'form-data';
-import { HttpClient2, RequestOptions2, HttpClientResponse, HttpMethod } from 'urllib';
-import { URL, URLSearchParams } from 'url';
+import { HttpClientResponse, HttpMethod } from 'urllib';
+import { URLSearchParams } from 'url';
+import { AdapterOption } from './adapter';
 import { Region } from './region';
 import { RegionService } from './region_service';
-import { generateAccessTokenV2 } from './kodo-auth';
-import { AdapterOption, RequestInfo, ResponseInfo } from './adapter';
-import { ReadableStreamBuffer } from 'stream-buffers';
+import { makeUploadToken, newUploadPolicy } from './kodo-auth';
 import { Throttle } from 'stream-throttle';
+import zlib from 'zlib';
+import { UplogBuffer, UplogEntry } from './uplog';
+import { HttpClient, RequestStats, URLRequestOptions } from './http-client';
 
 export type HttpProtocol = "http" | "https";
-
-export interface SharedRequestOptions extends AdapterOption {
-    protocol?: HttpProtocol,
-    timeout?: number | number[];
-    userAgent?: string;
-    retry?: number;
-    retryDelay?: number;
-}
 
 export interface RequestOptions {
     method?: HttpMethod;
@@ -34,24 +27,59 @@ export interface RequestOptions {
     headers?: { [headerName: string]: string; },
     uploadProgress?: (uploaded: number, total: number) => void,
     uploadThrottle?: Throttle,
+    stats?: RequestStats,
+}
+
+export interface SharedRequestOptions extends AdapterOption {
+    protocol?: HttpProtocol,
+    timeout?: number | number[];
+    userAgent?: string;
+    retry?: number;
+    retryDelay?: number;
 }
 
 export class KodoHttpClient {
-    private static readonly httpClient: HttpClient2 = new HttpClient2();
     private readonly regionsCache: { [key: string]: Region; } = {};
     private readonly regionsCacheLock = new AsyncLock();
     private readonly regionService: RegionService;
+    private static logClientId: string | undefined = undefined;
+    private readonly uplogBuffer: UplogBuffer;
+    private readonly httpClient: HttpClient;
 
     constructor(private readonly sharedOptions: SharedRequestOptions) {
         this.regionService = new RegionService(sharedOptions);
+        this.uplogBuffer = new UplogBuffer({
+            appName: sharedOptions.appName, appVersion: sharedOptions.appVersion,
+            bufferSize: sharedOptions.uplogBufferSize,
+            onBufferFull: (buffer: Buffer): Promise<void> => {
+                return this.sendUplog(buffer);
+            }
+        });
+        this.httpClient = new HttpClient(sharedOptions, this.uplogBuffer);
     }
 
     call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
         return new Promise((resolve, reject) => {
-            this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId).then((urls) => {
-                this.callForOneUrl(urls, options, resolve, reject);
+            this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId, options.stats).then((urls) => {
+                this.callUrls(urls, {
+                    method: options.method,
+                    path: options.path,
+                    query: options.query,
+                    data: options.data,
+                    dataType: options.dataType,
+                    form: options.form,
+                    contentType: options.contentType,
+                    headers: options.headers,
+                    uploadProgress: options.uploadProgress,
+                    uploadThrottle: options.uploadThrottle,
+                    stats: options.stats,
+                }).then(resolve, reject);
             }).catch(reject);
         });
+    }
+
+    callUrls<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        return this.httpClient.call(urls, options);
     }
 
     clearCache() {
@@ -59,198 +87,7 @@ export class KodoHttpClient {
         this.regionService.clearCache();
     }
 
-    private callForOneUrl(urls: Array<string>, options: RequestOptions, resolve: (value?: any) => void, reject: (error?: any) => void): void {
-        const urlString: string | undefined = urls.shift();
-        if (!urlString) {
-            reject(new Error('urls is empty'));
-            return;
-        }
-
-        const url: string = this.makeUrl(urlString, options);
-        const headers: http.IncomingHttpHeaders = {
-            'authorization': this.makeAuthorization(url, options),
-            'user-agent': this.sharedOptions.userAgent,
-        };
-        if (options.contentType !== 'json') {
-            headers['content-type'] = options.contentType;
-        }
-        if (options.headers) {
-            for (const [headerName, headerValue] of Object.entries(options.headers)) {
-                headers[headerName] = headerValue;
-            }
-        }
-
-        let requestInfo: RequestInfo | undefined = undefined;
-        const beginTime = new Date().getTime();
-
-        const requestOption: RequestOptions2 = {
-            method: options.method,
-            dataType: options.dataType,
-            contentType: options.contentType,
-            headers: headers,
-            timeout: this.sharedOptions.timeout,
-            followRedirect: true,
-            retry: this.sharedOptions.retry,
-            retryDelay: this.sharedOptions.retryDelay,
-            isRetry: this.isRetry,
-            beforeRequest: (info) => {
-                requestInfo = {
-                    url: url,
-                    method: info.method,
-                    headers: info.headers,
-                };
-                if (this.sharedOptions.requestCallback) {
-                    this.sharedOptions.requestCallback(requestInfo);
-                }
-            },
-        };
-        const data: any = options.data ?? options.form?.getBuffer();
-        let callbackError: Error | undefined = undefined;
-        if (data) {
-            if (options.uploadProgress) {
-                const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                stream.put(data);
-                stream.stop();
-                let uploaded = 0;
-                let total = data.length;
-                stream.on('data', (chunk) => {
-                    uploaded += chunk.length;
-                    try {
-                        options.uploadProgress!(uploaded, total);
-                    } catch (err) {
-                        if (!stream.destroyed) {
-                            stream.destroy(err);
-                        }
-                        callbackError = err;
-                        reject(err);
-                    }
-                });
-                if (options.uploadThrottle) {
-                    requestOption.stream = stream.pipe(options.uploadThrottle);
-                } else {
-                    requestOption.stream = stream;
-                }
-            } else if (options.uploadThrottle) {
-                const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                stream.put(data);
-                stream.stop();
-                requestOption.stream = stream.pipe(options.uploadThrottle);
-            } else {
-                requestOption.data = data;
-            }
-        }
-
-        KodoHttpClient.httpClient.request(url, requestOption).then((response) => {
-            const responseInfo: ResponseInfo = {
-                request: requestInfo!,
-                statusCode: response.status,
-                headers: response.headers,
-                data: response.data,
-                interval: new Date().getTime() - beginTime,
-            };
-
-            try {
-                if (callbackError) {
-                    return;
-                } else if (response.status >= 200 && response.status < 400) {
-                    resolve(response);
-                } else if (urls.length > 0) {
-                    this.callForOneUrl(urls, options, resolve, reject);
-                } else if (response.data.error) {
-                    const error = new Error(response.data.error);
-                    responseInfo.error = error;
-                    reject(error);
-                } else {
-                    try {
-                        const data: any = JSON.parse(response.data);
-                        if (data.error) {
-                            const error = new Error(data.error);
-                            responseInfo.error = error;
-                            reject(error);
-                        } else {
-                            const error = new Error(response.res.statusMessage);
-                            responseInfo.error = error;
-                            reject(error);
-                        }
-                    } catch {
-                        const error = new Error(response.res.statusMessage);
-                        responseInfo.error = error;
-                        reject(error);
-                    }
-                }
-            } finally {
-                if (this.sharedOptions.responseCallback) {
-                    this.sharedOptions.responseCallback(responseInfo);
-                }
-            }
-        }).catch((err) => {
-            const responseInfo: ResponseInfo = {
-                request: requestInfo!,
-                interval: new Date().getTime() - beginTime,
-                error: err,
-            };
-
-            if (this.sharedOptions.responseCallback) {
-                this.sharedOptions.responseCallback(responseInfo);
-            }
-
-            if (callbackError) {
-                return;
-            } else if (urls.length > 0) {
-                this.callForOneUrl(urls, options, resolve, reject);
-            } else {
-                reject(err);
-            }
-        });
-    }
-
-    private isRetry(response: HttpClientResponse<any>): boolean {
-        const dontRetryStatusCodes: Array<number> = [501, 579, 599, 608, 612, 614, 616,
-            618, 630, 631, 632, 640, 701];
-        return !response.headers['x-reqid'] ||
-            response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);
-    }
-
-    private makeUrl(base: string, options: RequestOptions): string {
-        const url = new URL(base);
-        if (options.path) {
-            url.pathname = options.path;
-        }
-
-        let protocol: HttpProtocol | undefined = this.sharedOptions.protocol;
-        if (protocol) {
-            switch (protocol) {
-                case "http":
-                    url.protocol = "http";
-                    break;
-                case "https":
-                    url.protocol = "https";
-                    break;
-            }
-        }
-        if (options.query) {
-            options.query.forEach((value, name) => {
-                url.searchParams.append(name, value);
-            });
-        }
-        return url.toString();
-    }
-
-    private makeAuthorization(url: string, options: RequestOptions): string {
-        let data: string | undefined = undefined;
-        if (options.data) {
-            if (options.dataType === 'json') {
-                data = JSON.stringify(options.data);
-            }
-            data = options.data.toString();
-        }
-
-        return generateAccessTokenV2(
-            this.sharedOptions.accessKey, this.sharedOptions.secretKey, url.toString(),
-            options.method ?? 'GET', options.contentType, data);
-    }
-
-    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string): Promise<Array<string>> {
+    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string, stats?: RequestStats): Promise<Array<string>> {
         return new Promise((resolve, reject) => {
             let key: string;
             if (s3RegionId) {
@@ -270,10 +107,24 @@ export class KodoHttpClient {
                         bucketName,
                         accessKey: this.sharedOptions.accessKey,
                         ucUrl: this.sharedOptions.ucUrl,
+                        timeout: this.sharedOptions.timeout,
+                        retry: this.sharedOptions.retry,
+                        retryDelay: this.sharedOptions.retryDelay,
+                        appName: this.sharedOptions.appName,
+                        appVersion: this.sharedOptions.appVersion,
+                        uplogBufferSize: this.sharedOptions.uplogBufferSize,
+                        requestCallback: this.sharedOptions.requestCallback,
+                        responseCallback: this.sharedOptions.responseCallback,
+                        stats: stats,
                     });
                 } else {
                     return new Promise((resolve, reject) => {
-                        this.regionService.getAllRegions().then((regions) => {
+                        this.regionService.getAllRegions({
+                            timeout: this.sharedOptions.timeout,
+                            retry: this.sharedOptions.retry,
+                            retryDelay: this.sharedOptions.retryDelay,
+                            stats: stats,
+                        }).then((regions) => {
                             if (regions.length == 0) {
                                 reject(Error('regions is empty'));
                                 return;
@@ -298,6 +149,42 @@ export class KodoHttpClient {
         });
     }
 
+    log(entry: UplogEntry): Promise<void> {
+        return this.uplogBuffer.log(entry);
+    }
+
+    private sendUplog(logBuffer: Buffer): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const query = new URLSearchParams();
+            query.set("compressed", "gzip");
+            const token = makeUploadToken(this.sharedOptions.accessKey, this.sharedOptions.secretKey, newUploadPolicy("testbucket"));
+            let headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
+            if (KodoHttpClient.logClientId) {
+                headers['X-Log-Client-Id'] = KodoHttpClient.logClientId;
+            }
+
+            zlib.gzip(logBuffer, { level: zlib.constants.Z_BEST_COMPRESSION }, (err, compressedLog) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                this.call({
+                    method: 'POST',
+                    serviceName: ServiceName.Uplog,
+                    path: 'log/4',
+                    query: query,
+                    headers: headers,
+                    data: compressedLog,
+                }).then((response) => {
+                    if (!KodoHttpClient.logClientId && response.headers['X-Log-Client-Id']) {
+                        KodoHttpClient.logClientId = response.headers['X-Log-Client-Id'].toString();
+                    }
+                    resolve();
+                }).catch(reject);
+            });
+        });
+    }
+
     private getUrlsFromRegion(serviceName: ServiceName, region: Region): Array<string> {
         switch (serviceName) {
             case ServiceName.Up:
@@ -316,6 +203,8 @@ export class KodoHttpClient {
                 return ['https://api.qiniu.com'];
             case ServiceName.Portal:
                 return ['https://portal.qiniu.com'];
+            case ServiceName.Uplog:
+                return ['http://uplog.qbox.me'];
         }
     }
 }
@@ -329,5 +218,5 @@ export enum ServiceName {
     S3,
     Qcdn,
     Portal,
+    Uplog,
 }
-

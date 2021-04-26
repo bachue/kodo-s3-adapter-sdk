@@ -20,10 +20,10 @@ export class Qiniu {
     private regions: Region[];
 
     constructor(private readonly accessKey: string,
-                private readonly secretKey: string,
-                private readonly ucUrl?: string,
-                private readonly appendedUserAgent?: string,
-                regions?: Region[]) {
+        private readonly secretKey: string,
+        private readonly ucUrl?: string,
+        private readonly appendedUserAgent?: string,
+        regions?: Region[]) {
         this.regions = regions || [];
     }
 

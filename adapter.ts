@@ -5,6 +5,7 @@ import { Readable } from 'stream';
 import { OutgoingHttpHeaders } from 'http';
 
 export abstract class Adapter {
+    abstract enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>): Promise<T>;
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
     abstract getBucketLocation(bucket: string): Promise<string>;
@@ -28,11 +29,11 @@ export abstract class Adapter {
     abstract getObjectURL(region: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL>;
     abstract getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable>;
     abstract putObject(region: string, object: Object, data: Buffer, originalFileName: string,
-                       header?: SetObjectHeader, option?: PutObjectOption): Promise<void>;
+        header?: SetObjectHeader, option?: PutObjectOption): Promise<void>;
 
     abstract createMultipartUpload(region: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput>;
     abstract uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
-                        data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput>;
+        data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
@@ -44,10 +45,10 @@ export type BatchCallback = (index: number, error?: Error) => any;
 export type ProgressCallback = (uploaded: number, total: number) => any;
 
 export interface ListObjectsOption {
-     delimiter?: string;
-     minKeys?: number;
-     maxKeys?: number;
-     nextContinuationToken?: string;
+    delimiter?: string;
+    minKeys?: number;
+    maxKeys?: number;
+    nextContinuationToken?: string;
 }
 
 export interface ListedObjects {
@@ -62,6 +63,9 @@ export interface AdapterOption {
     regions: Array<Region>;
     ucUrl?: string;
     appendedUserAgent?: string;
+    appName?: string;
+    appVersion?: string;
+    uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
 }

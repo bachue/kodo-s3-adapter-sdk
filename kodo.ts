@@ -452,7 +452,8 @@ export class Kodo implements Adapter {
             });
 
             domainPromise.then((domain: Domain) => {
-                let url = new URL(`${domain.protocol}://${domain.name}/${escape(object.key)}`);
+                let url = new URL(`${domain.protocol}://${domain.name}`);
+                url.pathname = object.key;
                 if (domain.private) {
                     url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
                 }

@@ -5,7 +5,8 @@ import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
 import { Semaphore } from 'semaphore-promise';
-import { RegionService, GetAllRegionsOptions } from './region_service';
+import { RegionRequestOptions } from './region';
+import { RegionService } from './region_service';
 import { URL, URLSearchParams } from 'url';
 import { Readable } from 'stream';
 import { HttpClientResponse } from 'urllib';
@@ -49,14 +50,14 @@ export class Kodo implements Adapter {
         this.regionService = new RegionService(adapterOption);
     }
 
-    enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>): Promise<T> {
+    enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new KodoScope(sdkApiName, this.adapterOption);
-        return f(scope).finally(() => { scope.done() });
+        return f(scope, this.getRegionRequestOptions()).finally(() => { scope.done() });
     }
 
     createBucket(s3RegionId: string, bucket: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.regionService.fromS3IdToKodoRegionId(s3RegionId, this.getAllRegionsOptions()).then((kodoRegionId) => {
+            this.regionService.fromS3IdToKodoRegionId(s3RegionId, this.getRegionRequestOptions()).then((kodoRegionId) => {
                 this.call({
                     method: 'POST',
                     serviceName: ServiceName.Uc,
@@ -91,7 +92,7 @@ export class Kodo implements Adapter {
                 dataType: 'json',
             }).then((response) => {
                 const kodoRegionId = response.data.region;
-                this.regionService.fromKodoRegionIdToS3Id(kodoRegionId, this.getAllRegionsOptions())
+                this.regionService.fromKodoRegionIdToS3Id(kodoRegionId, this.getRegionRequestOptions())
                     .then(resolve).catch(reject);
             }).catch(reject);
         });
@@ -111,7 +112,7 @@ export class Kodo implements Adapter {
             }).then((response) => {
                 const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
                     return new Promise((resolve) => {
-                        this.regionService.fromKodoRegionIdToS3Id(info.region, this.getAllRegionsOptions())
+                        this.regionService.fromKodoRegionIdToS3Id(info.region, this.getRegionRequestOptions())
                             .then(resolve).catch(() => { resolve(undefined); });
                     });
                 });
@@ -825,7 +826,7 @@ export class Kodo implements Adapter {
         return this.client.callUrls(urls, options);
     }
 
-    protected getAllRegionsOptions(): GetAllRegionsOptions {
+    protected getRegionRequestOptions(): RegionRequestOptions {
         return {
             timeout: [30000, 300000],
             retry: 10,
@@ -874,8 +875,8 @@ class KodoScope extends Kodo {
         return super.call(options);
     }
 
-    protected getAllRegionsOptions(): GetAllRegionsOptions {
-        const options = super.getAllRegionsOptions();
+    protected getRegionRequestOptions(): RegionRequestOptions {
+        const options = super.getRegionRequestOptions();
         options.stats = this.requestStats;
         return options;
     }

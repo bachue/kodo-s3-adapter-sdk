@@ -8,24 +8,27 @@ import { HttpClient, RequestStats } from './http-client';
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo/region`;
 export const DEFAULT_UC_URL: string = 'https://uc.qbox.me';
 
-interface Options {
-    accessKey: string;
+export interface RegionRequestOptions {
     timeout?: number | number[];
     retry?: number;
     retryDelay?: number;
+    stats?: RequestStats,
+}
+
+interface RequestOptions extends RegionRequestOptions {
+    accessKey: string;
     ucUrl?: string;
     appName?: string;
     appVersion?: string;
     uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
-    stats?: RequestStats,
 }
 
-export interface GetAllOptions extends Options {
+export interface GetAllOptions extends RequestOptions {
     secretKey: string;
 }
-export interface QueryOptions extends Options {
+export interface QueryOptions extends RequestOptions {
     bucketName: string;
 }
 

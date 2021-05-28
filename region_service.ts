@@ -1,19 +1,13 @@
 import AsyncLock from 'async-lock';
-import { Region } from './region';
+import { RegionRequestOptions, Region } from './region';
 import { AdapterOption } from './adapter';
-import { RequestStats } from './http-client';
 
 export interface S3IdEndpoint {
     s3Id: string,
     s3Endpoint: string,
 }
 
-export interface GetAllRegionsOptions {
-    timeout?: number | number[];
-    retry?: number;
-    retryDelay?: number;
-    stats?: RequestStats,
-}
+export type GetAllRegionsOptions = RegionRequestOptions;
 
 export class RegionService {
     private allRegions: Array<Region> | undefined = undefined;

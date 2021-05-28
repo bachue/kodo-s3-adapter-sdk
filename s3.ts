@@ -15,7 +15,7 @@ import {
 } from './adapter';
 import { LogType, RequestUplogEntry, SdkApiUplogEntry, getErrorTypeFromStatusCode, getErrorTypeFromS3Error } from './uplog';
 import { RequestStats } from './http-client';
-import { GetAllRegionsOptions } from './region_service';
+import { RegionRequestOptions } from './region';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -43,7 +43,7 @@ export class S3 extends Kodo {
                     if (this.adapterOption.appendedUserAgent) {
                         userAgent += `/${this.adapterOption.appendedUserAgent}`;
                     }
-                    this.regionService.getS3Endpoint(s3RegionId, this.getAllRegionsOptions()).then((s3IdEndpoint) => {
+                    this.regionService.getS3Endpoint(s3RegionId, this.getRegionRequestOptions()).then((s3IdEndpoint) => {
                         resolve(new AWS.S3({
                             apiVersion: "2006-03-01",
                             customUserAgent: userAgent,
@@ -130,9 +130,9 @@ export class S3 extends Kodo {
         });
     }
 
-    enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>): Promise<T> {
+    enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new S3Scope(sdkApiName, this.adapterOption);
-        return f(scope).finally(() => { scope.done() });
+        return f(scope, this.getRegionRequestOptions()).finally(() => { scope.done() });
     }
 
     private sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
@@ -823,8 +823,8 @@ class S3Scope extends S3 {
         return options;
     }
 
-    protected getAllRegionsOptions(): GetAllRegionsOptions {
-        const options = super.getAllRegionsOptions();
+    protected getRegionRequestOptions(): RegionRequestOptions {
+        const options = super.getRegionRequestOptions();
         options.stats = this.requestStats;
         return options;
     }

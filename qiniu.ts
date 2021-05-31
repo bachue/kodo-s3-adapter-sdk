@@ -6,7 +6,10 @@ import { S3 } from './s3';
 export const KODO_MODE: string = 'kodo';
 export const S3_MODE: string = 's3';
 
-interface Callbacks {
+export interface ModeOptions {
+    appName?: string;
+    appVersion?: string;
+    uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
 }
@@ -27,7 +30,7 @@ export class Qiniu {
         this.regions = regions || [];
     }
 
-    mode(modeName: string, callbacks?: Callbacks): Adapter {
+    mode(modeName: string, options?: ModeOptions): Adapter {
         const adapter: any = Qiniu.ADAPTERS[modeName];
         if (!adapter) {
             throw new Error(`Invalid qiniu mode: ${modeName}`);
@@ -38,8 +41,11 @@ export class Qiniu {
             regions: this.regions,
             ucUrl: this.ucUrl,
             appendedUserAgent: this.appendedUserAgent,
-            requestCallback: callbacks?.requestCallback,
-            responseCallback: callbacks?.responseCallback,
+            appName: options?.appName,
+            appVersion: options?.appVersion,
+            uplogBufferSize: options?.uplogBufferSize,
+            requestCallback: options?.requestCallback,
+            responseCallback: options?.responseCallback,
         });
     }
 }

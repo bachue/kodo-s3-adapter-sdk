@@ -52,7 +52,7 @@ export class Kodo implements Adapter {
 
     enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new KodoScope(sdkApiName, this.adapterOption);
-        return f(scope, this.getRegionRequestOptions()).finally(() => { scope.done() });
+        return f(scope, scope.getRegionRequestOptions()).finally(() => { scope.done() });
     }
 
     createBucket(s3RegionId: string, bucket: string): Promise<void> {
@@ -875,7 +875,7 @@ class KodoScope extends Kodo {
         return super.call(options);
     }
 
-    protected getRegionRequestOptions(): RegionRequestOptions {
+    getRegionRequestOptions(): RegionRequestOptions {
         const options = super.getRegionRequestOptions();
         options.stats = this.requestStats;
         return options;

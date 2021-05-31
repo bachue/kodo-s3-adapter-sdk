@@ -132,7 +132,7 @@ export class S3 extends Kodo {
 
     enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new S3Scope(sdkApiName, this.adapterOption);
-        return f(scope, this.getRegionRequestOptions()).finally(() => { scope.done() });
+        return f(scope, scope.getRegionRequestOptions()).finally(() => { scope.done() });
     }
 
     private sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
@@ -823,7 +823,7 @@ class S3Scope extends S3 {
         return options;
     }
 
-    protected getRegionRequestOptions(): RegionRequestOptions {
+    getRegionRequestOptions(): RegionRequestOptions {
         const options = super.getRegionRequestOptions();
         options.stats = this.requestStats;
         return options;

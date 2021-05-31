@@ -76,7 +76,10 @@ export class UplogBuffer {
 
     constructor(private readonly option: UplogOption) {
         if (!UplogBuffer.uploadBufferFd) {
-            fs.mkdirSync(path.dirname(UplogBufferFilePath), { recursive: true, mode: 0o700 });
+            const dirPath = path.dirname(UplogBufferFilePath);
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
+            }
             UplogBuffer.uploadBufferFd = fs.openSync(UplogBufferFilePath, 'a', 0o600);
         }
     }

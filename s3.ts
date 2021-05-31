@@ -134,9 +134,9 @@ export class S3 extends Kodo {
         const scope = new S3Scope(sdkApiName, this.adapterOption);
         return new Promise((resolve, reject) => {
             f(scope, scope.getRegionRequestOptions()).then((data) => {
-                scope.done().finally(() => { resolve(data); });
+                scope.done(true).finally(() => { resolve(data); });
             }).catch((err) => {
-                scope.done().finally(() => { reject(err); });
+                scope.done(false).finally(() => { reject(err); });
             });
         });
     }
@@ -805,18 +805,20 @@ class S3Scope extends S3 {
         };
     }
 
-    done(): Promise<void> {
+    done(successful: boolean): Promise<void> {
         const uplog: SdkApiUplogEntry = {
             log_type: LogType.SdkApi,
             api_name: this.requestStats.sdkApiName,
             requests_count: this.requestStats.requestsCount,
             total_elapsed_time: new Date().getTime() - this.beginTime.getTime(),
         };
-        if (this.requestStats.errorType) {
-            uplog.error_type = this.requestStats.errorType;
-        }
-        if (this.requestStats.errorDescription) {
-            uplog.error_description = this.requestStats.errorDescription;
+        if (!successful) {
+            if (this.requestStats.errorType) {
+                uplog.error_type = this.requestStats.errorType;
+            }
+            if (this.requestStats.errorDescription) {
+                uplog.error_description = this.requestStats.errorDescription;
+            }
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;

@@ -132,7 +132,13 @@ export class S3 extends Kodo {
 
     enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new S3Scope(sdkApiName, this.adapterOption);
-        return f(scope, scope.getRegionRequestOptions()).finally(() => { scope.done() });
+        return new Promise((resolve, reject) => {
+            f(scope, scope.getRegionRequestOptions()).then((data) => {
+                scope.done().finally(() => { resolve(data); });
+            }).catch((err) => {
+                scope.done().finally(() => { reject(err); });
+            });
+        });
     }
 
     private sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
@@ -181,6 +187,10 @@ export class S3 extends Kodo {
                     error: response.error,
                     interval: new Date().getTime() - beginTime,
                 };
+                if (this.adapterOption.responseCallback) {
+                    this.adapterOption.responseCallback(responseInfo);
+                }
+
                 uplog.status_code = response.httpResponse.statusCode;
                 uplog.total_elapsed_time = responseInfo.interval;
                 if (response.requestId) {
@@ -198,19 +208,16 @@ export class S3 extends Kodo {
                         options.stats.errorDescription = uplog.error_description;
                     }
                 }
-                this.log(uplog);
-
-                if (this.adapterOption.responseCallback) {
-                    this.adapterOption.responseCallback(responseInfo);
-                }
             });
 
             request.send((err, data) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(data);
-                }
+                this.log(uplog).finally(() => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve(data);
+                    }
+                });
             });
         });
     }
@@ -798,7 +805,7 @@ class S3Scope extends S3 {
         };
     }
 
-    done() {
+    done(): Promise<void> {
         const uplog: SdkApiUplogEntry = {
             log_type: LogType.SdkApi,
             api_name: this.requestStats.sdkApiName,
@@ -814,7 +821,7 @@ class S3Scope extends S3 {
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
-        this.log(uplog);
+        return this.log(uplog);
     }
 
     protected getRequestsOption(): RequestOptions {

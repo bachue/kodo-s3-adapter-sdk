@@ -174,8 +174,9 @@ export class HttpClient {
                     if (callbackError) {
                         return;
                     } else if (response.status >= 200 && response.status < 400) {
-                        this.uplogBuffer.log(uplog);
-                        resolve(response);
+                        this.uplogBuffer.log(uplog).finally(() => {
+                            resolve(response);
+                        });
                     } else if (response.data && response.data.error) {
                         const error = new Error(response.data.error);
                         responseInfo.error = error;
@@ -185,12 +186,13 @@ export class HttpClient {
                             options.stats.errorType = uplog.error_type;
                             options.stats.errorDescription = uplog.error_description;
                         }
-                        this.uplogBuffer.log(uplog);
-                        if (urls.length > 0) {
-                            this.call(urls, options).then(resolve, reject);
-                        } else {
-                            reject(error);
-                        }
+                        this.uplogBuffer.log(uplog).finally(() => {
+                            if (urls.length > 0) {
+                                this.call(urls, options).then(resolve, reject);
+                            } else {
+                                reject(error);
+                            }
+                        });
                     } else {
                         let error: Error | undefined = undefined;
                         if (response.data) {
@@ -211,12 +213,13 @@ export class HttpClient {
                             options.stats.errorType = uplog.error_type;
                             options.stats.errorDescription = uplog.error_description;
                         }
-                        this.uplogBuffer.log(uplog);
-                        if (urls.length > 0) {
-                            this.call(urls, options).then(resolve, reject);
-                        } else {
-                            reject(error);
-                        }
+                        this.uplogBuffer.log(uplog).finally(() => {
+                            if (urls.length > 0) {
+                                this.call(urls, options).then(resolve, reject);
+                            } else {
+                                reject(error);
+                            }
+                        });
                     }
                 } finally {
                     if (this.clientOptions.responseCallback) {
@@ -229,6 +232,10 @@ export class HttpClient {
                     interval: new Date().getTime() - beginTime,
                     error: err,
                 };
+                if (this.clientOptions.responseCallback) {
+                    this.clientOptions.responseCallback(responseInfo);
+                }
+
                 uplog.total_elapsed_time = responseInfo.interval;
                 uplog.error_type = getErrorTypeFromRequestError(err);
                 uplog.error_description = err.message;
@@ -236,19 +243,15 @@ export class HttpClient {
                     options.stats.errorType = uplog.error_type;
                     options.stats.errorDescription = uplog.error_description;
                 }
-                this.uplogBuffer.log(uplog);
-
-                if (this.clientOptions.responseCallback) {
-                    this.clientOptions.responseCallback(responseInfo);
-                }
-
-                if (callbackError) {
-                    return;
-                } else if (urls.length > 0) {
-                    this.call(urls, options).then(resolve, reject);
-                } else {
-                    reject(err);
-                }
+                this.uplogBuffer.log(uplog).finally(() => {
+                    if (callbackError) {
+                        return;
+                    } else if (urls.length > 0) {
+                        this.call(urls, options).then(resolve, reject);
+                    } else {
+                        reject(err);
+                    }
+                });
             });
         });
     }

@@ -99,7 +99,7 @@ export class UplogBuffer {
 
     private flushBufferToLogFile(): Promise<number | undefined> {
         return new Promise((resolve, reject) => {
-            lockFile.lock(UplogBufferFileLockPath, {}, (err) => {
+            lockFile.lock(UplogBufferFileLockPath, this.lockOptions(), (err) => {
                 if (err) {
                     if ((err as any).code === 'EEXIST') {
                         resolve(undefined);
@@ -151,7 +151,7 @@ export class UplogBuffer {
             return Promise.resolve();
         }
         return new Promise((resolve, reject) => {
-            lockFile.lock(UplogBufferFileLockPath, {}, (err) => {
+            lockFile.lock(UplogBufferFileLockPath, this.lockOptions(), (err) => {
                 if (err) {
                     console.warn("locked fail:", err);
                     reject(err);
@@ -203,6 +203,10 @@ export class UplogBuffer {
         entry.http_client_version = pkg.version;
         entry.up_time = Math.trunc(Date.now() / 1000);
         return JSON.stringify(entry);
+    }
+
+    private lockOptions(): lockFile.Options {
+        return { retries: 10, retryWait: 100 };
     }
 }
 

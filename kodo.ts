@@ -52,7 +52,13 @@ export class Kodo implements Adapter {
 
     enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new KodoScope(sdkApiName, this.adapterOption);
-        return f(scope, scope.getRegionRequestOptions()).finally(() => { scope.done() });
+        return new Promise((resolve, reject) => {
+            f(scope, scope.getRegionRequestOptions()).then((data) => {
+                scope.done().finally(() => { resolve(data); });
+            }).catch((err) => {
+                scope.done().finally(() => { reject(err); });
+            });
+        });
     }
 
     createBucket(s3RegionId: string, bucket: string): Promise<void> {
@@ -851,7 +857,7 @@ class KodoScope extends Kodo {
         };
     }
 
-    done() {
+    done(): Promise<void> {
         const uplog: SdkApiUplogEntry = {
             log_type: LogType.SdkApi,
             api_name: this.requestStats.sdkApiName,
@@ -867,7 +873,7 @@ class KodoScope extends Kodo {
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
-        this.log(uplog);
+        return this.log(uplog);
     }
 
     protected call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {

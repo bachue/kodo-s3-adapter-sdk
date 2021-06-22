@@ -725,9 +725,18 @@ export class Kodo implements Adapter {
                     if (results.commonPrefixes === undefined) {
                         results.commonPrefixes = [];
                     }
-                    results.commonPrefixes.push({
-                        bucket: bucket, key: data.dir,
-                    });
+                    let foundDup = false;
+                    for (const commonPrefix of results.commonPrefixes) {
+                        if (commonPrefix.key === data.dir) {
+                            foundDup = true;
+                            break;
+                        }
+                    }
+                    if (!foundDup) {
+                        results.commonPrefixes.push({
+                            bucket: bucket, key: data.dir,
+                        });
+                    }
                 }
                 marker = data.marker;
             });

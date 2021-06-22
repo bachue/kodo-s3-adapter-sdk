@@ -687,9 +687,21 @@ export class S3 extends Kodo {
                     if (!results.commonPrefixes) {
                         results.commonPrefixes = [];
                     }
-                    results.commonPrefixes = results.commonPrefixes.concat(data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
+                    const newCommonPrefixes = data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
                         return { bucket: bucket, key: commonPrefix.Prefix! };
-                    }));
+                    });
+                    for (const newCommonPrefix of newCommonPrefixes) {
+                        let foundDup = false;
+                        for (const commonPrefix of results.commonPrefixes) {
+                            if (commonPrefix.key === newCommonPrefix.key) {
+                                foundDup = true;
+                                break;
+                            }
+                        }
+                        if (!foundDup) {
+                            results.commonPrefixes.push(newCommonPrefix);
+                        }
+                    }
                 }
 
                 results.nextContinuationToken = data.NextMarker;

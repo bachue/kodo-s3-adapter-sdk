@@ -14,7 +14,8 @@ export abstract class Adapter {
 
     abstract isExists(region: string, object: Object): Promise<boolean>;
     abstract getFrozenInfo(region: string, object: Object): Promise<FrozenInfo>;
-    abstract unfreeze(region: string, object: Object, days: number): Promise<void>;
+    abstract restoreObject(region: string, object: Object, days: number): Promise<void>;
+    abstract setObjectStorageClass(region: string, object: Object, storageClass: StorageClass): Promise<void>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
     abstract moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;

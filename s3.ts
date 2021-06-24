@@ -639,7 +639,7 @@ export class S3 extends Kodo {
         });
     }
 
-    unfreeze(s3RegionId: string, object: Object, days: number): Promise<void> {
+    restoreObject(s3RegionId: string, object: Object, days: number): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.RestoreObjectRequest = {
@@ -650,6 +650,36 @@ export class S3 extends Kodo {
                     },
                 };
                 this.sendS3Request(s3.restoreObject(params)).
+                    then(() => { resolve(); }).catch(reject);
+            }).catch(reject);
+        });
+    }
+
+    setObjectStorageClass(s3RegionId: string, object: Object, storageClass: StorageClass): Promise<void> {
+        return new Promise((resolve, reject) => {
+            Promise.all([
+                this.getClient(s3RegionId),
+                this.fromKodoBucketNameToS3BucketId(object.bucket),
+            ]).then(([s3, bucketId]) => {
+                let storageClassParam: AWS.S3.StorageClass = 'STANDARD';
+                switch (storageClass) {
+                    case 'Standard':
+                        storageClassParam = 'STANDARD';
+                        break;
+                    case 'InfrequentAccess':
+                        storageClassParam = 'LINE';
+                        break;
+                    case 'Glacier':
+                        storageClassParam = 'GLACIER';
+                        break;
+                }
+                const params: AWS.S3.Types.CopyObjectRequest = {
+                    Bucket: bucketId, Key: object.key,
+                    CopySource: `/${bucketId}/${encodeURIComponent(object.key)}`,
+                    MetadataDirective: 'COPY',
+                    StorageClass: storageClassParam,
+                };
+                this.sendS3Request(s3.copyObject(params)).
                     then(() => { resolve(); }).catch(reject);
             }).catch(reject);
         });

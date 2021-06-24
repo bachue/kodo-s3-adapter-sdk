@@ -621,19 +621,6 @@ export class Kodo implements Adapter {
         });
     }
 
-    freeze(s3RegionId: string, object: Object): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `chtype/${encodeObject(object)}/type/2`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
-
     getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
         return new Promise((resolve, reject) => {
             this.call({
@@ -661,12 +648,37 @@ export class Kodo implements Adapter {
         });
     }
 
-    unfreeze(s3RegionId: string, object: Object, days: number): Promise<void> {
+    restoreObject(s3RegionId: string, object: Object, days: number): Promise<void> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
                 serviceName: ServiceName.Rs,
                 path: `restoreAr/${encodeObject(object)}/freezeAfterDays/${days}`,
+                dataType: 'json',
+                s3RegionId: s3RegionId,
+                contentType: 'application/x-www-form-urlencoded',
+            }).then(() => { resolve(); }).catch(reject);
+        });
+    }
+
+    setObjectStorageClass(s3RegionId: string, object: Object, storageClass: StorageClass): Promise<void> {
+        let fileType = 0;
+        switch (storageClass) {
+            case 'Standard':
+                fileType = 0;
+                break;
+            case 'InfrequentAccess':
+                fileType = 1;
+                break;
+            case 'Glacier':
+                fileType = 2;
+                break;
+        }
+        return new Promise((resolve, reject) => {
+            this.call({
+                method: 'POST',
+                serviceName: ServiceName.Rs,
+                path: `chtype/${encodeObject(object)}/type/${fileType}`,
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',

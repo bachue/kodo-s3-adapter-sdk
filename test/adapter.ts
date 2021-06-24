@@ -10,7 +10,6 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
 import { Downloader } from '../downloader';
-import { Kodo } from '../kodo';
 import { Throttle, ThrottleGroup } from 'stream-throttle';
 
 process.on('uncaughtException', (err: any, origin: any) => {
@@ -246,25 +245,47 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
-            it('unfreeze objects', async () => {
+            it('set object storage class', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
-                const kodo = new Kodo({ accessKey: accessKey, secretKey: secretKey, regions: [] });
                 const qiniuAdapter = qiniu.mode(mode);
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName);
 
-                let frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                let frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Normal');
 
-                await kodo.freeze(bucketRegionId, { bucket: bucketName, key: key });
-                frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(frozenInfo.status).to.equal('Frozen');
+                let objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(objectInfo.storageClass).to.equal('Standard');
 
-                await kodo.unfreeze(bucketRegionId, { bucket: bucketName, key: key }, 1);
-                frozenInfo = await kodo.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                await qiniuAdapter.setObjectStorageClass(bucketRegionId, { bucket: bucketName, key: key }, 'InfrequentAccess');
+                objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(objectInfo.storageClass).to.equal('InfrequentAccess');
+
+                await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+            });
+
+            it('freeze object and restore them', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const kodoAdapter = qiniu.mode(KODO_MODE);
+
+                const buffer = randomBytes(1 << 12);
+                const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName);
+                await qiniuAdapter.setObjectStorageClass(bucketRegionId, { bucket: bucketName, key: key }, 'Glacier');
+
+                let frozenInfo = await kodoAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(frozenInfo.status).to.equal('Frozen');
+                let objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(objectInfo.storageClass).to.equal('Glacier');
+
+                await qiniuAdapter.restoreObject(bucketRegionId, { bucket: bucketName, key: key }, 1);
+                frozenInfo = await kodoAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Unfreezing');
+                objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                expect(objectInfo.storageClass).to.equal('Glacier');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });

@@ -702,6 +702,8 @@ export class Kodo implements Adapter {
         }
         if (option?.maxKeys) {
             query.set('limit', option.maxKeys.toString());
+        } else {
+            query.set('limit', '1000');
         }
         if (option?.delimiter) {
             query.set('delimiter', option.delimiter);
@@ -767,6 +769,9 @@ export class Kodo implements Adapter {
                         this._listObjects(s3RegionId, bucket, prefix, resolve, reject, results, newOption);
                         return;
                     }
+                } else if (!option?.maxKeys) {
+                    this._listObjects(s3RegionId, bucket, prefix, resolve, reject, results, newOption);
+                    return;
                 }
             }
             resolve(results);

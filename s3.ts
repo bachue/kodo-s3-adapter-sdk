@@ -16,6 +16,7 @@ import {
 import { LogType, RequestUplogEntry, SdkApiUplogEntry, getErrorTypeFromStatusCode, getErrorTypeFromS3Error } from './uplog';
 import { RequestStats } from './http-client';
 import { RegionRequestOptions } from './region';
+import { generateReqId } from './req_id';
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -152,6 +153,14 @@ export class S3 extends Kodo {
             path: request.httpRequest.path,
             total_elapsed_time: 0,
         };
+
+        const reqId = generateReqId({
+            url: request.httpRequest.endpoint.href,
+            method: request.httpRequest.method,
+            headers: request.httpRequest.headers,
+        });
+        request.httpRequest.headers['X-Reqid'] = reqId;
+
         const options = this.getRequestsOption();
 
         return new Promise((resolve, reject) => {

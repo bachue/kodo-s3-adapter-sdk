@@ -7,6 +7,7 @@ import { ReadableStreamBuffer } from 'stream-buffers';
 import { RequestInfo, ResponseInfo } from './adapter';
 import { parsePort } from './utils';
 import { generateAccessTokenV2 } from './kodo-auth';
+import { generateReqId } from './req_id';
 
 export interface HttpClientOptions {
     accessKey: string;
@@ -77,6 +78,14 @@ export class HttpClient {
                 headers[headerName] = headerValue;
             }
         }
+        const reqId = generateReqId({
+            url: url.toString(),
+            method: options.method,
+            dataType: options.dataType,
+            contentType: options.contentType,
+            headers: headers,
+        });
+        headers['x-reqid'] = reqId;
 
         return new Promise((resolve, reject) => {
             let requestInfo: RequestInfo | undefined = undefined;

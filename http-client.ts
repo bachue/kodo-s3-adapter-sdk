@@ -89,7 +89,12 @@ export class HttpClient {
 
         return new Promise((resolve, reject) => {
             let requestInfo: RequestInfo | undefined = undefined;
-            const beginTime = new Date().getTime();
+            let multiJsonEncoded = false;
+
+            if (options.dataType === 'multijson') {
+                multiJsonEncoded = true;
+                delete options.dataType;
+            }
 
             const requestOption: RequestOptions2 = {
                 method: options.method,
@@ -161,7 +166,17 @@ export class HttpClient {
                 total_elapsed_time: 0,
             };
 
+            const beginTime = new Date().getTime();
             HttpClient.httpClient.request(url.toString(), requestOption).then((response) => {
+                if (multiJsonEncoded && response.data && response.data instanceof Buffer) {
+                    try {
+                        response.data = response.data.toString().split(/\s*\n+\s*/).
+                            filter((line: string) => line.length).
+                            map((line: string) => JSON.parse(line));
+                    } catch {
+                        // ignore
+                    }
+                }
                 const responseInfo: ResponseInfo = {
                     request: requestInfo!,
                     statusCode: response.status,

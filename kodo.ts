@@ -716,18 +716,13 @@ export class Kodo implements Adapter {
             path: 'v2/list',
             s3RegionId: s3RegionId,
             query: query,
+            dataType: 'multijson',
             contentType: 'application/x-www-form-urlencoded',
         }).then((response) => {
             let marker: string | undefined = undefined;
             delete results.nextContinuationToken;
 
-            const lines = response.data.toString().split(/\s*\n+\s*/);
-
-            lines.forEach((line: string) => {
-                if (line === '') {
-                    return;
-                }
-                const data = JSON.parse(line);
+            response.data.forEach((data: { [key: string]: any; }) => {
                 if (data.item) {
                     results.objects.push({
                         bucket: bucket, key: data.item.key, size: data.item.fsize,

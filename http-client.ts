@@ -96,6 +96,7 @@ export class HttpClient {
                 delete options.dataType;
             }
 
+            const data: any = options.data ?? options.form?.getBuffer();
             const requestOption: RequestOptions2 = {
                 method: options.method,
                 dataType: options.dataType,
@@ -115,13 +116,13 @@ export class HttpClient {
                         url: url.toString(),
                         method: info.method,
                         headers: info.headers,
+                        data: data,
                     };
                     if (this.clientOptions.requestCallback) {
                         this.clientOptions.requestCallback(requestInfo);
                     }
                 },
             };
-            const data: any = options.data ?? options.form?.getBuffer();
             let callbackError: Error | undefined = undefined;
             if (data) {
                 if (options.uploadProgress) {

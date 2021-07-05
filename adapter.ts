@@ -75,6 +75,7 @@ export interface RequestInfo {
     url: string;
     method: string;
     headers: OutgoingHttpHeaders;
+    data?: any;
 }
 
 export interface ResponseInfo {

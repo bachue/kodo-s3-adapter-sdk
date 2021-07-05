@@ -182,6 +182,7 @@ export class S3 extends Kodo {
                     url: url,
                     method: request.httpRequest.method,
                     headers: request.httpRequest.headers,
+                    data: request.httpRequest.body,
                 };
                 if (this.adapterOption.requestCallback) {
                     this.adapterOption.requestCallback(requestInfo);

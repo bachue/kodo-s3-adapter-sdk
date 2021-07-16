@@ -455,7 +455,7 @@ export class Kodo implements Adapter {
     }
 
     private moveOrCopyObjects(op: string, batchCount: number, s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        const semaphore = new Semaphore(5);
+        const semaphore = new Semaphore(20);
         const transferObjectsBatches: Array<Array<TransferObject>> = [];
 
         while (transferObjects.length >= batchCount) {
@@ -538,7 +538,7 @@ export class Kodo implements Adapter {
     }
 
     deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        const semaphore = new Semaphore(5);
+        const semaphore = new Semaphore(20);
         const keysBatches: Array<Array<string>> = [];
         const batchCount = 1000;
 

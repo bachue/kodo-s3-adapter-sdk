@@ -139,7 +139,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('moves, copies and deletes objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
-                const semaphore = new Semaphore(5);
+                const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
                 const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
@@ -293,7 +293,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('list objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
-                const semaphore = new Semaphore(5);
+                const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
                 let keys: Array<string> = [`10b-文件-${seed}/`];

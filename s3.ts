@@ -481,7 +481,7 @@ export class S3 extends Kodo {
 
     moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
-            const semaphore = new Semaphore(5);
+            const semaphore = new Semaphore(100);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
@@ -509,7 +509,7 @@ export class S3 extends Kodo {
 
     copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
-            const semaphore = new Semaphore(5);
+            const semaphore = new Semaphore(100);
             const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
@@ -538,7 +538,7 @@ export class S3 extends Kodo {
     deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
-                const semaphore = new Semaphore(5);
+                const semaphore = new Semaphore(100);
                 const batchCount = 100;
                 const batches: Array<Array<string>> = [];
                 while (keys.length >= batchCount) {

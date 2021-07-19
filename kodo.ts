@@ -447,117 +447,45 @@ export class Kodo implements Adapter {
     }
 
     moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        return this.moveOrCopyObjects('move', 100, s3RegionId, transferObjects, callback);
+        return this.batchOps(transferObjects.map((to) => new MoveObjectOp(to)), 100, s3RegionId, callback);
     }
 
     copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        return this.moveOrCopyObjects('copy', 100, s3RegionId, transferObjects, callback);
-    }
-
-    private moveOrCopyObjects(op: string, batchCount: number, s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        const semaphore = new Semaphore(20);
-        const transferObjectsBatches: Array<Array<TransferObject>> = [];
-
-        while (transferObjects.length >= batchCount) {
-            const batch: Array<TransferObject> = transferObjects.splice(0, batchCount);
-            transferObjectsBatches.push(batch);
-        }
-        if (transferObjects.length > 0) {
-            transferObjectsBatches.push(transferObjects);
-        }
-
-        let counter = 0;
-        const promises: Array<Promise<Array<PartialObjectError>>> = transferObjectsBatches.map((batch) => {
-            const firstIndexInCurrentBatch = counter;
-            counter += batch.length;
-            return new Promise((resolve, reject) => {
-                const params = new URLSearchParams();
-                for (const transferObject of batch) {
-                    params.append('op', `/${op}/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`);
-                }
-                semaphore.acquire().then((release) => {
-                    this.call({
-                        method: 'POST',
-                        serviceName: ServiceName.Rs,
-                        path: 'batch',
-                        dataType: 'json',
-                        s3RegionId: s3RegionId,
-                        contentType: 'application/x-www-form-urlencoded',
-                        data: params.toString(),
-                    }).then((response) => {
-                        let aborted = false;
-                        const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
-                            const currentIndex = firstIndexInCurrentBatch + index;
-                            const result: PartialObjectError = { bucket: batch[index].from.bucket, key: batch[index].from.key };
-                            if (item?.data?.error) {
-                                const error = new Error(item?.data?.error);
-                                if (callback && callback(currentIndex, error) === false) {
-                                    aborted = true;
-                                }
-                                result.error = error;
-                            } else if (callback && callback(currentIndex) === false) {
-                                aborted = true;
-                            }
-                            return result;
-                        });
-                        if (aborted) {
-                            reject(new Error('aborted'));
-                        } else {
-                            resolve(results);
-                        }
-                    }).catch((error) => {
-                        let aborted = false;
-                        const results: Array<PartialObjectError> = batch.map((transferObject, index) => {
-                            const currentIndex = firstIndexInCurrentBatch + index;
-                            if (callback && callback(currentIndex, error) === false) {
-                                aborted = true;
-                            }
-                            return { bucket: transferObject.from.bucket, key: transferObject.from.key, error: error };
-                        });
-                        if (aborted) {
-                            reject(new Error('aborted'));
-                        } else {
-                            resolve(results);
-                        }
-                    }).finally(() => {
-                        release();
-                    });
-                });
-            });
-        });
-
-        return new Promise((resolve, reject) => {
-            Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
-                let results: Array<PartialObjectError> = [];
-                for (const batch of batches) {
-                    results = results.concat(batch);
-                }
-                resolve(results);
-            }).catch(reject);
-        });
+        return this.batchOps(transferObjects.map((to) => new CopyObjectOp(to)), 100, s3RegionId, callback);
     }
 
     deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        const semaphore = new Semaphore(20);
-        const keysBatches: Array<Array<string>> = [];
-        const batchCount = 1000;
+        return this.batchOps(keys.map((key) => new DeleteObjectOp({ bucket, key })), 100, s3RegionId, callback);
+    }
 
-        while (keys.length >= batchCount) {
-            const batch: Array<string> = keys.splice(0, batchCount);
-            keysBatches.push(batch);
+    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.batchOps(keys.map((key) => new SetObjectStorageClassOp({ bucket, key }, storageClass)), 100, s3RegionId, callback);
+    }
+
+    restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.batchOps(keys.map((key) => new RestoreObjectsOp({ bucket, key }, days)), 100, s3RegionId, callback);
+    }
+
+    private batchOps(ops: Array<ObjectOp>, batchCount: number, s3RegionId: string, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        const semaphore = new Semaphore(20);
+        const opsBatches: Array<Array<ObjectOp>> = [];
+
+        while (ops.length >= batchCount) {
+            const batch: Array<ObjectOp> = ops.splice(0, batchCount);
+            opsBatches.push(batch);
         }
-        if (keys.length > 0) {
-            keysBatches.push(keys);
+        if (ops.length > 0) {
+            opsBatches.push(ops);
         }
 
         let counter = 0;
-        const promises: Array<Promise<Array<PartialObjectError>>> = keysBatches.map((batch) => {
+        const promises: Array<Promise<Array<PartialObjectError>>> = opsBatches.map((batch) => {
             const firstIndexInCurrentBatch = counter;
             counter += batch.length;
             return new Promise((resolve, reject) => {
                 const params = new URLSearchParams();
-                for (const key of batch) {
-                    params.append('op', `/delete/${encodeObject({ bucket: bucket, key: key })}`);
+                for (const op of batch) {
+                    params.append('op', op.getOp());
                 }
                 semaphore.acquire().then((release) => {
                     this.call({
@@ -572,7 +500,7 @@ export class Kodo implements Adapter {
                         let aborted = false;
                         const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
-                            const result: PartialObjectError = { bucket: bucket, key: batch[index] };
+                            const result: PartialObjectError = batch[index].getObject();
                             if (item?.data?.error) {
                                 const error = new Error(item?.data?.error);
                                 if (callback && callback(currentIndex, error) === false) {
@@ -591,12 +519,12 @@ export class Kodo implements Adapter {
                         }
                     }).catch((error) => {
                         let aborted = false;
-                        const results: Array<PartialObjectError> = batch.map((key, index) => {
+                        const results: Array<PartialObjectError> = batch.map((op, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
                             if (callback && callback(currentIndex, error) === false) {
                                 aborted = true;
                             }
-                            return { bucket: bucket, key: key, error: error };
+                            return Object.assign({}, op.getObject());
                         });
                         if (aborted) {
                             reject(new Error('aborted'));
@@ -662,23 +590,11 @@ export class Kodo implements Adapter {
     }
 
     setObjectStorageClass(s3RegionId: string, object: Object, storageClass: StorageClass): Promise<void> {
-        let fileType = 0;
-        switch (storageClass) {
-            case 'Standard':
-                fileType = 0;
-                break;
-            case 'InfrequentAccess':
-                fileType = 1;
-                break;
-            case 'Glacier':
-                fileType = 2;
-                break;
-        }
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
                 serviceName: ServiceName.Rs,
-                path: `chtype/${encodeObject(object)}/type/${fileType}`,
+                path: `chtype/${encodeObject(object)}/type/${convertStorageClassToFileType(storageClass)}`,
                 dataType: 'json',
                 s3RegionId: s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
@@ -955,4 +871,95 @@ function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
 export interface BucketIdName {
     id: string;
     name: string;
+}
+
+abstract class ObjectOp {
+    abstract getObject(): Object;
+    abstract getOp(): string;
+}
+
+class MoveObjectOp extends ObjectOp {
+    constructor(private readonly object: TransferObject) {
+        super();
+    }
+
+    getObject(): Object {
+        return this.object.from;
+    }
+
+    getOp(): string {
+        return `/move/${encodeObject(this.object.from)}/${encodeObject(this.object.to)}/force/true`;
+    }
+}
+
+class CopyObjectOp extends ObjectOp {
+    constructor(private readonly object: TransferObject) {
+        super();
+    }
+
+    getObject(): Object {
+        return this.object.from;
+    }
+
+    getOp(): string {
+        return `/copy/${encodeObject(this.object.from)}/${encodeObject(this.object.to)}/force/true`;
+    }
+}
+
+class DeleteObjectOp extends ObjectOp {
+    constructor(private readonly object: Object) {
+        super();
+    }
+
+    getObject(): Object {
+        return this.object;
+    }
+
+    getOp(): string {
+        return `/delete/${encodeObject(this.object)}`;
+    }
+}
+
+class SetObjectStorageClassOp extends ObjectOp {
+    constructor(private readonly object: Object, private readonly storageClass: StorageClass) {
+        super();
+    }
+
+    getObject(): Object {
+        return this.object;
+    }
+
+    getOp(): string {
+        return `chtype/${encodeObject(this.object)}/type/${convertStorageClassToFileType(this.storageClass)}`;
+    }
+}
+
+function convertStorageClassToFileType(storageClass: StorageClass): number {
+    let fileType = 0;
+    switch (storageClass) {
+        case 'Standard':
+            fileType = 0;
+            break;
+        case 'InfrequentAccess':
+            fileType = 1;
+            break;
+        case 'Glacier':
+            fileType = 2;
+            break;
+    }
+    return fileType;
+}
+
+class RestoreObjectsOp extends ObjectOp {
+    constructor(private readonly object: Object, private readonly days: number) {
+        super();
+    }
+
+    getObject(): Object {
+        return this.object;
+    }
+
+    getOp(): string {
+        return `restoreAr/${encodeObject(this.object)}/freezeAfterDays/${this.days}`;
+    }
 }

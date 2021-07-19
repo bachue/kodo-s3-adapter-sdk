@@ -266,7 +266,42 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
 
-            it('freeze object and restore them', async () => {
+            it('set objects storage class', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const semaphore = new Semaphore(20);
+
+                const seed = Math.floor(Math.random() * (2 ** 64 - 1));
+                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
+                const uploadPromises = keys.map((key) => {
+                    return new Promise((resolve, reject) => {
+                        semaphore.acquire().then((release) => {
+                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10), originalFileName)
+                                .then(resolve, reject)
+                                .finally(() => { release(); });
+                        });
+                    });
+                });
+                await Promise.all(uploadPromises);
+                await qiniuAdapter.setObjectsStorageClass(bucketRegionId, bucketName, keys, 'InfrequentAccess');
+                const getAllStorageClassesPromises = keys.map((key) => {
+                    return new Promise((resolve, reject) => {
+                        semaphore.acquire().then((release) => {
+                            qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key })
+                                .then((info) => { resolve(info.storageClass); }, reject)
+                                .finally(() => { release(); });
+                        });
+                    });
+                });
+                const allStorageClasses = await Promise.all(getAllStorageClassesPromises);
+                for (const storageClass of allStorageClasses) {
+                    expect(storageClass).to.equal('InfrequentAccess');
+                }
+
+                await qiniuAdapter.deleteObjects(bucketRegionId, bucketName, keys);
+            });
+
+            it('freeze object and restore it', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
                 const kodoAdapter = qiniu.mode(KODO_MODE);
@@ -288,6 +323,90 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 expect(objectInfo.storageClass).to.equal('Glacier');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+            });
+
+            it('freeze objects and restore them', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                const semaphore = new Semaphore(20);
+
+                const seed = Math.floor(Math.random() * (2 ** 64 - 1));
+                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
+                const uploadPromises = keys.map((key) => {
+                    return new Promise((resolve, reject) => {
+                        semaphore.acquire().then((release) => {
+                            qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10), originalFileName)
+                                .then(resolve, reject)
+                                .finally(() => { release(); });
+                        });
+                    });
+                });
+                await Promise.all(uploadPromises);
+                await qiniuAdapter.setObjectsStorageClass(bucketRegionId, bucketName, keys, 'Glacier');
+
+                {
+                    const getAllFrozenInfosPromises = keys.map((key) => {
+                        return new Promise((resolve, reject) => {
+                            semaphore.acquire().then((release) => {
+                                qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key })
+                                    .then((info) => { resolve(info.status); }, reject)
+                                    .finally(() => { release(); });
+                            });
+                        });
+                    });
+                    const allFrozenInfos = await Promise.all(getAllFrozenInfosPromises);
+                    for (const storageClass of allFrozenInfos) {
+                        expect(storageClass).to.equal('Frozen');
+                    }
+
+                    const getAllStorageClassesPromises = keys.map((key) => {
+                        return new Promise((resolve, reject) => {
+                            semaphore.acquire().then((release) => {
+                                qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key })
+                                    .then((info) => { resolve(info.storageClass); }, reject)
+                                    .finally(() => { release(); });
+                            });
+                        });
+                    });
+                    const allStorageClasses = await Promise.all(getAllStorageClassesPromises);
+                    for (const storageClass of allStorageClasses) {
+                        expect(storageClass).to.equal('Glacier');
+                    }
+                }
+
+                await qiniuAdapter.restoreObjects(bucketRegionId, bucketName, keys, 1);
+
+                {
+                    const getAllFrozenInfosPromises = keys.map((key) => {
+                        return new Promise((resolve, reject) => {
+                            semaphore.acquire().then((release) => {
+                                qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key })
+                                    .then((info) => { resolve(info.status); }, reject)
+                                    .finally(() => { release(); });
+                            });
+                        });
+                    });
+                    const allFrozenInfos = await Promise.all(getAllFrozenInfosPromises);
+                    for (const storageClass of allFrozenInfos) {
+                        expect(storageClass).to.equal('Unfreezing');
+                    }
+
+                    const getAllStorageClassesPromises = keys.map((key) => {
+                        return new Promise((resolve, reject) => {
+                            semaphore.acquire().then((release) => {
+                                qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key })
+                                    .then((info) => { resolve(info.storageClass); }, reject)
+                                    .finally(() => { release(); });
+                            });
+                        });
+                    });
+                    const allStorageClasses = await Promise.all(getAllStorageClassesPromises);
+                    for (const storageClass of allStorageClasses) {
+                        expect(storageClass).to.equal('Glacier');
+                    }
+                }
+
+                await qiniuAdapter.deleteObjects(bucketRegionId, bucketName, keys);
             });
 
             it('list objects', async () => {

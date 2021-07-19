@@ -15,7 +15,9 @@ export abstract class Adapter {
     abstract isExists(region: string, object: Object): Promise<boolean>;
     abstract getFrozenInfo(region: string, object: Object): Promise<FrozenInfo>;
     abstract restoreObject(region: string, object: Object, days: number): Promise<void>;
+    abstract restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
     abstract setObjectStorageClass(region: string, object: Object, storageClass: StorageClass): Promise<void>;
+    abstract setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
     abstract moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;

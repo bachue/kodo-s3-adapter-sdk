@@ -480,51 +480,39 @@ export class S3 extends Kodo {
     }
 
     moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        return new Promise((resolve, reject) => {
-            const semaphore = new Semaphore(100);
-            const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
-                return new Promise((resolve, reject) => {
-                    semaphore.acquire().then((release) => {
-                        this.moveObject(s3RegionId, transferObject).then(() => {
-                            if (callback && callback(index) === false) {
-                                reject(new Error('aborted'));
-                                return;
-                            }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
-                        }).catch((err) => {
-                            if (callback && callback(index, err) === false) {
-                                reject(new Error('aborted'));
-                                return;
-                            }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: err });
-                        }).finally(() => {
-                            release();
-                        });
-                    });
-                });
-            });
-            Promise.all(promises).then(resolve).catch(reject);
-        });
+        return this.s3BatchOps(transferObjects.map((to) => new MoveObjectOp(this, s3RegionId, to)), callback);
     }
 
     copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.s3BatchOps(transferObjects.map((to) => new CopyObjectOp(this, s3RegionId, to)), callback);
+    }
+
+    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.s3BatchOps(keys.map((key) => new SetObjectStorageClassOp(this, s3RegionId, { bucket, key }, storageClass)), callback);
+    }
+
+    restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+        return this.s3BatchOps(keys.map((key) => new RestoreObjectOp(this, s3RegionId, { bucket, key }, days)), callback);
+    }
+
+    private s3BatchOps(objectOps: Array<ObjectOp>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(100);
-            const promises: Array<Promise<PartialObjectError>> = transferObjects.map((transferObject, index) => {
+            const promises: Array<Promise<PartialObjectError>> = objectOps.map((objectOp, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
-                        this.copyObject(s3RegionId, transferObject).then(() => {
+                        objectOp.getOpPromise().then(() => {
                             if (callback && callback(index) === false) {
                                 reject(new Error('aborted'));
                                 return;
                             }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key });
+                            resolve(Object.assign({}, objectOp.getObject()));
                         }).catch((err) => {
                             if (callback && callback(index, err) === false) {
                                 reject(new Error('aborted'));
                                 return;
                             }
-                            resolve({ bucket: transferObject.from.bucket, key: transferObject.from.key, error: err });
+                            resolve(Object.assign({ error: err }, objectOp.getObject()));
                         }).finally(() => {
                             release();
                         });
@@ -919,4 +907,73 @@ function parseRestoreInfo(s: string): Map<string, string> {
 
 function makeContentDisposition(originalFileName: string): string {
     return `attachment; filename*=utf-8''${encodeURIComponent(originalFileName)}`;
+}
+
+abstract class ObjectOp {
+    abstract getOpPromise(): Promise<void>;
+    abstract getObject(): Object;
+}
+
+class MoveObjectOp extends ObjectOp {
+    constructor(private readonly s3: S3, private readonly s3RegionId: string, private readonly transferObject: TransferObject) {
+        super();
+    }
+
+    getOpPromise(): Promise<void> {
+        return this.s3.moveObject(this.s3RegionId, this.transferObject);
+    }
+
+    getObject(): Object {
+        return this.transferObject.from;
+    }
+}
+
+class CopyObjectOp extends ObjectOp {
+    constructor(private readonly s3: S3, private readonly s3RegionId: string, private readonly transferObject: TransferObject) {
+        super();
+    }
+
+    getOpPromise(): Promise<void> {
+        return this.s3.copyObject(this.s3RegionId, this.transferObject);
+    }
+
+    getObject(): Object {
+        return this.transferObject.from;
+    }
+}
+
+class SetObjectStorageClassOp extends ObjectOp {
+    constructor(
+        private readonly s3: S3,
+        private readonly s3RegionId: string,
+        private readonly object: Object,
+        private readonly storageClass: StorageClass) {
+        super();
+    }
+
+    getOpPromise(): Promise<void> {
+        return this.s3.setObjectStorageClass(this.s3RegionId, this.object, this.storageClass);
+    }
+
+    getObject(): Object {
+        return this.object;
+    }
+}
+
+class RestoreObjectOp extends ObjectOp {
+    constructor(
+        private readonly s3: S3,
+        private readonly s3RegionId: string,
+        private readonly object: Object,
+        private readonly days: number) {
+        super();
+    }
+
+    getOpPromise(): Promise<void> {
+        return this.s3.restoreObject(this.s3RegionId, this.object, this.days);
+    }
+
+    getObject(): Object {
+        return this.object;
+    }
 }

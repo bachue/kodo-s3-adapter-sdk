@@ -272,7 +272,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
-                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
+                const keys: Array<string> = new Array(10).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
                 const uploadPromises = keys.map((key) => {
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
@@ -331,7 +331,8 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
-                const keys: Array<string> = new Array(250).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
+                const keys: Array<string> = new Array(10).fill('').map((_, idx: number) => `10b-${seed}-${idx}`);
+
                 const uploadPromises = keys.map((key) => {
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
@@ -345,20 +346,6 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 await qiniuAdapter.setObjectsStorageClass(bucketRegionId, bucketName, keys, 'Glacier');
 
                 {
-                    const getAllFrozenInfosPromises = keys.map((key) => {
-                        return new Promise((resolve, reject) => {
-                            semaphore.acquire().then((release) => {
-                                qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key })
-                                    .then((info) => { resolve(info.status); }, reject)
-                                    .finally(() => { release(); });
-                            });
-                        });
-                    });
-                    const allFrozenInfos = await Promise.all(getAllFrozenInfosPromises);
-                    for (const storageClass of allFrozenInfos) {
-                        expect(storageClass).to.equal('Frozen');
-                    }
-
                     const getAllStorageClassesPromises = keys.map((key) => {
                         return new Promise((resolve, reject) => {
                             semaphore.acquire().then((release) => {

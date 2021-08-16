@@ -119,6 +119,10 @@ export class Kodo implements Adapter {
                 dataType: 'json',
                 query: bucketsQuery,
             }).then((response) => {
+                if (!response.data) {
+                    resolve([]);
+                    return;
+                }
                 const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
                     return new Promise((resolve) => {
                         this.regionService.fromKodoRegionIdToS3Id(info.region, this.getRegionRequestOptions())

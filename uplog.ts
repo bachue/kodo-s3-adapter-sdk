@@ -2,7 +2,6 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import pkg from './package.json';
-import { getCacheFolder } from 'platform-folders';
 import lockFile from 'lockfile';
 
 export interface UplogOption {
@@ -67,8 +66,8 @@ export enum ErrorType {
     UnexpectedSyscallError = 'unexpected_syscall_error',
 }
 
-export const UplogBufferFilePath = path.join(getCacheFolder(), '.kodo-s3-adapter-sdk', 'uplog-buffer');
-export const UplogBufferFileLockPath = path.join(getCacheFolder(), '.kodo-s3-adapter-sdk', 'uplog-buffer.lock');
+export const UplogBufferFilePath = path.join(os.homedir(), '.kodo-s3-adapter-sdk', 'uplog-buffer');
+export const UplogBufferFileLockPath = path.join(os.homedir(), '.kodo-s3-adapter-sdk', 'uplog-buffer.lock');
 
 export class UplogBuffer {
     private static uploadBufferedEntries: Array<string> = [];

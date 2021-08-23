@@ -30,7 +30,6 @@
     "js-md5": "^0.7.3",
     "lockfile": "^1.0.4",
     "object-hash": "^2.2.0",
-    "platform-folders": "^0.5.3",
     "semaphore-promise": "^1.2.0",
     "stream-buffers": "^3.0.2",
     "stream-throttle": "^0.1.3",

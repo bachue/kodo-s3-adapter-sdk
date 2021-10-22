@@ -157,7 +157,12 @@ export class KodoHttpClient {
         return new Promise((resolve, reject) => {
             const query = new URLSearchParams();
             query.set("compressed", "gzip");
-            const token = makeUploadToken(this.sharedOptions.accessKey, this.sharedOptions.secretKey, newUploadPolicy("testbucket"));
+            const token = makeUploadToken(
+                this.sharedOptions.accessKey,
+                this.sharedOptions.secretKey,
+                newUploadPolicy({
+                    bucket: "testbucket",
+                }));
             let headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
             if (KodoHttpClient.logClientId) {
                 headers['X-Log-Client-Id'] = KodoHttpClient.logClientId;

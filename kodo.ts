@@ -20,6 +20,7 @@ import {
 import { KodoHttpClient, ServiceName, RequestOptions } from './kodo-http-client';
 import { URLRequestOptions, RequestStats } from './http-client';
 import { UplogEntry, SdkApiUplogEntry, LogType } from './uplog';
+import { convertStorageClassToFileType } from './utils'
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
@@ -291,7 +292,15 @@ export class Kodo implements Adapter {
     putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
         header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
-            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const token = makeUploadToken(
+                this.adapterOption.accessKey,
+                this.adapterOption.secretKey,
+                newUploadPolicy({
+                    bucket: object.bucket,
+                    key: object.key,
+                    storageClassName: object?.storageClassName,
+                }),
+            );
             const form = new FormData();
             form.append('key', object.key);
             form.append('token', token);
@@ -690,7 +699,15 @@ export class Kodo implements Adapter {
 
     createMultipartUpload(s3RegionId: string, object: Object, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
-            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const token = makeUploadToken(
+                this.adapterOption.accessKey,
+                this.adapterOption.secretKey,
+                newUploadPolicy({
+                    bucket: object.bucket,
+                    key: object.key,
+                    storageClassName: object?.storageClassName,
+                })
+            );
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
             this.call({
                 method: 'POST',
@@ -708,7 +725,15 @@ export class Kodo implements Adapter {
 
     uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
-            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const token = makeUploadToken(
+                this.adapterOption.accessKey,
+                this.adapterOption.secretKey,
+                newUploadPolicy({
+                    bucket: object.bucket,
+                    key: object.key,
+                    storageClassName: object?.storageClassName,
+                })
+            );
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
             this.call({
                 method: 'PUT',
@@ -732,7 +757,15 @@ export class Kodo implements Adapter {
 
     completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
-            const token = makeUploadToken(this.adapterOption.accessKey, this.adapterOption.secretKey, newUploadPolicy(object.bucket, object.key));
+            const token = makeUploadToken(
+                this.adapterOption.accessKey,
+                this.adapterOption.secretKey,
+                newUploadPolicy({
+                    bucket: object.bucket,
+                    key: object.key,
+                    storageClassName: object.storageClassName,
+                })
+            );
             const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
             const metadata: { [metaKey: string]: string; } = {};
             if (header?.metadata) {
@@ -936,22 +969,6 @@ class SetObjectStorageClassOp extends ObjectOp {
     getOp(): string {
         return `chtype/${encodeObject(this.object)}/type/${convertStorageClassToFileType(this.storageClass)}`;
     }
-}
-
-function convertStorageClassToFileType(storageClass: StorageClass): number {
-    let fileType = 0;
-    switch (storageClass) {
-        case 'Standard':
-            fileType = 0;
-            break;
-        case 'InfrequentAccess':
-            fileType = 1;
-            break;
-        case 'Glacier':
-            fileType = 2;
-            break;
-    }
-    return fileType;
 }
 
 class RestoreObjectsOp extends ObjectOp {

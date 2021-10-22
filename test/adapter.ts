@@ -245,6 +245,51 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 }
             });
 
+            it('upload object with storage class', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const buffer = randomBytes(1 << 12);
+
+                // Standard
+                {
+                    const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key, storageClassName: 'Standard' }, buffer, originalFileName);
+
+                    const frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(frozenInfo.status).to.equal('Normal');
+
+                    const objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(objectInfo.storageClass).to.equal('Standard');
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                }
+
+                // InfrequentAccess
+                {
+                    const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key, storageClassName: 'InfrequentAccess' }, buffer, originalFileName);
+
+                    const frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(frozenInfo.status).to.equal('Normal');
+                    const objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(objectInfo.storageClass).to.equal('InfrequentAccess');
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                }
+
+                // Glacier
+                {
+                    const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key, storageClassName: 'Glacier' }, buffer, originalFileName);
+
+                    const frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(frozenInfo.status).to.equal('Frozen');
+                    const objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
+                    expect(objectInfo.storageClass).to.equal('Glacier');
+                    await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
+                }
+
+            });
+
             it('set object storage class', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);

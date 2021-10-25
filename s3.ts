@@ -17,6 +17,7 @@ import { LogType, RequestUplogEntry, SdkApiUplogEntry, getErrorTypeFromStatusCod
 import { RequestStats } from './http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
+import { covertStorageClassToS3StorageClass } from './utils'
 
 export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -350,6 +351,7 @@ export class S3 extends Kodo {
                     ContentLength: data.length,
                     Metadata: header?.metadata,
                     ContentDisposition: makeContentDisposition(originalFileName),
+                    StorageClass: covertStorageClassToS3StorageClass(object.storageClassName),
                 };
                 if (header?.contentType) {
                     params.ContentType = header!.contentType;

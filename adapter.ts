@@ -120,6 +120,7 @@ export interface TransferObject {
 export interface Object {
     bucket: string;
     key: string;
+    storageClassName?: StorageClass;
 }
 
 export interface PartialObjectError extends Object {

@@ -7,7 +7,7 @@ import { ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 const DEFAULT_RETRIES_ON_SAME_OFFSET = 10;
 
 export class Downloader {
-    private aborted: boolean = false;
+    private aborted = false;
     private static readonly userCanceledError = new Error('User Canceled');
 
     constructor(private readonly adapter: Adapter) {
@@ -45,7 +45,7 @@ export class Downloader {
         retriedOnThisOffset: number, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const fileWriteStream = createWriteStream(filePath, {
-                flags: <any>(fsConstants.O_CREAT | fsConstants.O_WRONLY | fsConstants.O_NONBLOCK),
+                flags: (fsConstants.O_CREAT | fsConstants.O_WRONLY | fsConstants.O_NONBLOCK) as any,
                 encoding: 'binary',
                 start: offset,
             });

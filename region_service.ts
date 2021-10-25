@@ -10,20 +10,20 @@ export interface S3IdEndpoint {
 export type GetAllRegionsOptions = RegionRequestOptions;
 
 export class RegionService {
-    private allRegions: Array<Region> | undefined = undefined;
+    private allRegions: Region[] | undefined = undefined;
     private readonly allRegionsLock = new AsyncLock();
 
     constructor(private readonly adapterOption: AdapterOption) {
     }
 
-    getAllRegions(options?: GetAllRegionsOptions): Promise<Array<Region>> {
+    getAllRegions(options?: GetAllRegionsOptions): Promise<Region[]> {
         return new Promise((resolve, reject) => {
             if (this.adapterOption.regions.length > 0) {
                 resolve(this.adapterOption.regions);
             } else if (this.allRegions && this.allRegions.length > 0) {
                 resolve(this.allRegions);
             } else {
-                this.allRegionsLock.acquire('all', (): Promise<Array<Region>> => {
+                this.allRegionsLock.acquire('all', (): Promise<Region[]> => {
                     if (this.allRegions && this.allRegions.length > 0) {
                         return Promise.resolve(this.allRegions);
                     }
@@ -41,7 +41,7 @@ export class RegionService {
                         responseCallback: this.adapterOption.responseCallback,
                         stats: options?.stats,
                     });
-                }).then((regions: Array<Region>) => {
+                }).then((regions: Region[]) => {
                     this.allRegions = regions;
                     resolve(regions);
                 }).catch(reject);
@@ -62,7 +62,7 @@ export class RegionService {
             } else {
                 queryCondition = (region) => !!region.s3Id && region.s3Urls.length > 0;
             }
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
+            const queryInRegions: (regions: Region[]) => void = (regions) => {
                 const region: Region | undefined = regions.find(queryCondition);
                 if (region) {
                     resolve({ s3Id: region.s3Id, s3Endpoint: region.s3Urls[0] });
@@ -80,7 +80,7 @@ export class RegionService {
     fromKodoRegionIdToS3Id(regionId: string, options?: GetAllRegionsOptions): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.id === regionId;
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
+            const queryInRegions: (regions: Region[]) => void = (regions) => {
                 const region: Region | undefined = regions.find(queryCondition);
                 if (region && region.s3Id) {
                     resolve(region.s3Id);
@@ -96,7 +96,7 @@ export class RegionService {
     fromS3IdToKodoRegionId(s3Id: string, options?: GetAllRegionsOptions): Promise<string> {
         return new Promise((resolve, reject) => {
             const queryCondition: (region: Region) => boolean = (region) => region.s3Id === s3Id;
-            const queryInRegions: (regions: Array<Region>) => void = (regions) => {
+            const queryInRegions: (regions: Region[]) => void = (regions) => {
                 const region: Region | undefined = regions.find(queryCondition);
                 if (region && region.id) {
                     resolve(region.id);

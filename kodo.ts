@@ -22,12 +22,12 @@ import { URLRequestOptions, RequestStats } from './http-client';
 import { UplogEntry, SdkApiUplogEntry, LogType } from './uplog';
 import { convertStorageClassToFileType } from './utils'
 
-export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
+export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
 export class Kodo implements Adapter {
     protected readonly client: KodoHttpClient;
     protected readonly regionService: RegionService;
-    private readonly bucketDomainsCache: { [bucketName: string]: Array<Domain>; } = {};
+    private readonly bucketDomainsCache: { [bucketName: string]: Domain[]; } = {};
     private readonly bucketDomainsCacheLock = new AsyncLock();
 
     constructor(protected adapterOption: AdapterOption) {
@@ -44,7 +44,7 @@ export class Kodo implements Adapter {
             appName: adapterOption.appName,
             appVersion: adapterOption.appVersion,
             uplogBufferSize: adapterOption.uplogBufferSize,
-            userAgent: userAgent,
+            userAgent,
             timeout: [30000, 300000],
             retry: 10,
             retryDelay: 500,
@@ -108,7 +108,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    listBuckets(): Promise<Array<Bucket>> {
+    listBuckets(): Promise<Bucket[]> {
         return new Promise((resolve, reject) => {
             const bucketsQuery = new URLSearchParams();
             bucketsQuery.set('shared', 'rd');
@@ -124,15 +124,15 @@ export class Kodo implements Adapter {
                     resolve([]);
                     return;
                 }
-                const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
+                const regionsPromises: Promise<string | undefined>[] = response.data.map((info: any) => {
                     return new Promise((resolve) => {
                         this.regionService.fromKodoRegionIdToS3Id(info.region, this.getRegionRequestOptions())
                             .then(resolve).catch(() => { resolve(undefined); });
                     });
                 });
-                Promise.all(regionsPromises).then((regionsInfo: Array<string | undefined>) => {
-                    const bucketInfos: Array<Bucket> = response.data.map((info: any, index: number) => {
-                        let grantedPermission: string | undefined = undefined;
+                Promise.all(regionsPromises).then((regionsInfo: (string | undefined)[]) => {
+                    const bucketInfos: Bucket[] = response.data.map((info: any, index: number) => {
+                        let grantedPermission: string | undefined;
                         switch (info.perm) {
                             case 1:
                                 grantedPermission = 'readonly';
@@ -144,7 +144,7 @@ export class Kodo implements Adapter {
                         return {
                             id: info.id, name: info.tbl,
                             createDate: new Date(info.ctime * 1000),
-                            regionId: regionsInfo[index], grantedPermission: grantedPermission,
+                            regionId: regionsInfo[index], grantedPermission,
                         };
                     });
                     resolve(bucketInfos);
@@ -153,7 +153,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    listDomains(s3RegionId: string, bucket: string): Promise<Array<Domain>> {
+    listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
         return new Promise((resolve, reject) => {
             const domainsQuery = new URLSearchParams();
             domainsQuery.set('sourceTypes', 'qiniuBucket');
@@ -174,7 +174,7 @@ export class Kodo implements Adapter {
                     path: 'domain',
                     query: domainsQuery,
                     dataType: 'json',
-                    s3RegionId: s3RegionId,
+                    s3RegionId,
                 }),
                 this.call({
                     method: 'POST',
@@ -182,7 +182,7 @@ export class Kodo implements Adapter {
                     path: 'v2/bucketInfo',
                     query: getBucketInfoQuery,
                     dataType: 'json',
-                    s3RegionId: s3RegionId,
+                    s3RegionId,
                 }),
                 this.call({
                     method: 'GET',
@@ -190,14 +190,14 @@ export class Kodo implements Adapter {
                     path: 'api/kodov2/domain/default/get',
                     query: bucketDefaultDomainQuery,
                     dataType: 'json',
-                    s3RegionId: s3RegionId,
+                    s3RegionId,
                 }),
             ];
 
             Promise.all(promises).then(([domainResponse, bucketResponse, defaultDomainQuery]) => {
                 if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
                     const result = defaultDomainQuery.data;
-                    const domains: Array<Domain> = [];
+                    const domains: Domain[] = [];
                     if (result.domain && result.protocol) {
                         domains.push({
                             name: result.domain, protocol: result.protocol,
@@ -206,7 +206,7 @@ export class Kodo implements Adapter {
                     }
                     resolve(domains);
                 } else {
-                    const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
+                    const domains: Domain[] = domainResponse.data.domains.filter((domain: any) => {
                         switch (domain.type) {
                             case 'normal':
                             case 'pan':
@@ -227,26 +227,26 @@ export class Kodo implements Adapter {
         });
     }
 
-    private _listDomains(s3RegionId: string, bucket: string): Promise<Array<Domain>> {
+    private _listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
         return new Promise((resolve, reject) => {
             if (this.bucketDomainsCache[bucket]) {
                 resolve(this.bucketDomainsCache[bucket]);
                 return;
             }
 
-            this.bucketDomainsCacheLock.acquire(bucket, (): Promise<Array<Domain>> => {
+            this.bucketDomainsCacheLock.acquire(bucket, (): Promise<Domain[]> => {
                 if (this.bucketDomainsCache[bucket]) {
                     return Promise.resolve(this.bucketDomainsCache[bucket]);
                 }
                 return this.listDomains(s3RegionId, bucket);
-            }).then((domains: Array<Domain>) => {
+            }).then((domains: Domain[]) => {
                 this.bucketDomainsCache[bucket] = domains;
                 resolve(domains);
             }).catch(reject);
         });
     }
 
-    listBucketIdNames(): Promise<Array<BucketIdName>> {
+    listBucketIdNames(): Promise<BucketIdName[]> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'GET',
@@ -283,7 +283,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `delete/${encodeObject(object)}`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }).catch(reject);
         });
@@ -322,9 +322,9 @@ export class Kodo implements Adapter {
                 method: 'POST',
                 serviceName: ServiceName.Up,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: form.getHeaders()['content-type'],
-                form: form,
+                form,
                 uploadProgress: option?.progressCallback,
                 uploadThrottle: option?.throttle,
             }).then(() => { resolve(); }).catch(reject);
@@ -348,7 +348,7 @@ export class Kodo implements Adapter {
     getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
         const headers: { [headerName: string]: string; } = {};
         if (option?.rangeStart || option?.rangeEnd) {
-            headers['Range'] = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
+            headers.Range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
         }
 
         return new Promise((resolve, reject) => {
@@ -357,7 +357,7 @@ export class Kodo implements Adapter {
                     fullUrl: true,
                     appendAuthorization: false,
                     method: 'GET',
-                    headers: headers,
+                    headers,
                     streaming: true,
                 }).then((response: HttpClientResponse<any>) => {
                     resolve(response.res);
@@ -408,7 +408,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `stat/${encodeObject(object)}`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then((response) => {
                 resolve({
@@ -440,7 +440,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }).catch(reject);
         });
@@ -453,38 +453,38 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }).catch(reject);
         });
     }
 
-    moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    moveObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(transferObjects.map((to) => new MoveObjectOp(to)), 100, s3RegionId, callback);
     }
 
-    copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    copyObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(transferObjects.map((to) => new CopyObjectOp(to)), 100, s3RegionId, callback);
     }
 
-    deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    deleteObjects(s3RegionId: string, bucket: string, keys: string[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(keys.map((key) => new DeleteObjectOp({ bucket, key })), 100, s3RegionId, callback);
     }
 
-    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(keys.map((key) => new SetObjectStorageClassOp({ bucket, key }, storageClass)), 100, s3RegionId, callback);
     }
 
-    restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(keys.map((key) => new RestoreObjectsOp({ bucket, key }, days)), 100, s3RegionId, callback);
     }
 
-    private batchOps(ops: Array<ObjectOp>, batchCount: number, s3RegionId: string, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    private batchOps(ops: ObjectOp[], batchCount: number, s3RegionId: string, callback?: BatchCallback): Promise<PartialObjectError[]> {
         const semaphore = new Semaphore(20);
-        const opsBatches: Array<Array<ObjectOp>> = [];
+        const opsBatches: ObjectOp[][] = [];
 
         while (ops.length >= batchCount) {
-            const batch: Array<ObjectOp> = ops.splice(0, batchCount);
+            const batch: ObjectOp[] = ops.splice(0, batchCount);
             opsBatches.push(batch);
         }
         if (ops.length > 0) {
@@ -492,7 +492,7 @@ export class Kodo implements Adapter {
         }
 
         let counter = 0;
-        const promises: Array<Promise<Array<PartialObjectError>>> = opsBatches.map((batch) => {
+        const promises: Promise<PartialObjectError[]>[] = opsBatches.map((batch) => {
             const firstIndexInCurrentBatch = counter;
             counter += batch.length;
             return new Promise((resolve, reject) => {
@@ -506,12 +506,12 @@ export class Kodo implements Adapter {
                         serviceName: ServiceName.Rs,
                         path: 'batch',
                         dataType: 'json',
-                        s3RegionId: s3RegionId,
+                        s3RegionId,
                         contentType: 'application/x-www-form-urlencoded',
                         data: params.toString(),
                     }).then((response) => {
                         let aborted = false;
-                        const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
+                        const results: PartialObjectError[] = response.data.map((item: any, index: number) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
                             const result: PartialObjectError = batch[index].getObject();
                             if (item?.data?.error) {
@@ -532,7 +532,7 @@ export class Kodo implements Adapter {
                         }
                     }).catch((error) => {
                         let aborted = false;
-                        const results: Array<PartialObjectError> = batch.map((op, index) => {
+                        const results: PartialObjectError[] = batch.map((op, index) => {
                             const currentIndex = firstIndexInCurrentBatch + index;
                             if (callback && callback(currentIndex, error) === false) {
                                 aborted = true;
@@ -552,8 +552,8 @@ export class Kodo implements Adapter {
         });
 
         return new Promise((resolve, reject) => {
-            Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
-                let results: Array<PartialObjectError> = [];
+            Promise.all(promises).then((batches: PartialObjectError[][]) => {
+                let results: PartialObjectError[] = [];
                 for (const batch of batches) {
                     results = results.concat(batch);
                 }
@@ -569,7 +569,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `stat/${encodeObject(object)}`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then((response) => {
                 if (response.data.type === 2) {
@@ -596,7 +596,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `restoreAr/${encodeObject(object)}/freezeAfterDays/${days}`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }).catch(reject);
         });
@@ -609,7 +609,7 @@ export class Kodo implements Adapter {
                 serviceName: ServiceName.Rs,
                 path: `chtype/${encodeObject(object)}/type/${convertStorageClassToFileType(storageClass)}`,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
             }).then(() => { resolve(); }).catch(reject);
         });
@@ -643,18 +643,18 @@ export class Kodo implements Adapter {
             method: 'POST',
             serviceName: ServiceName.Rsf,
             path: 'v2/list',
-            s3RegionId: s3RegionId,
-            query: query,
+            s3RegionId,
+            query,
             dataType: 'multijson',
             contentType: 'application/x-www-form-urlencoded',
         }).then((response) => {
-            let marker: string | undefined = undefined;
+            let marker: string | undefined;
             delete results.nextContinuationToken;
 
             response.data.forEach((data: { [key: string]: any; }) => {
                 if (data.item) {
                     results.objects.push({
-                        bucket: bucket, key: data.item.key, size: data.item.fsize,
+                        bucket, key: data.item.key, size: data.item.fsize,
                         lastModified: new Date(data.item.putTime / 10000), storageClass: toStorageClass(data.item.type),
                     });
                 } else if (data.dir) {
@@ -670,7 +670,7 @@ export class Kodo implements Adapter {
                     }
                     if (!foundDup) {
                         results.commonPrefixes.push({
-                            bucket: bucket, key: data.dir,
+                            bucket, key: data.dir,
                         });
                     }
                 }
@@ -712,9 +712,9 @@ export class Kodo implements Adapter {
             this.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
-                path: path,
+                path,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/x-www-form-urlencoded',
                 headers: { 'authorization': `UpToken ${token}` },
             }).then((response) => {
@@ -738,10 +738,10 @@ export class Kodo implements Adapter {
             this.call({
                 method: 'PUT',
                 serviceName: ServiceName.Up,
-                path: path,
-                data: data,
+                path,
+                data,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 contentType: 'application/octet-stream',
                 headers: {
                     'authorization': `UpToken ${token}`,
@@ -755,7 +755,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Part[], originalFileName: string, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(
                 this.adapterOption.accessKey,
@@ -773,7 +773,7 @@ export class Kodo implements Adapter {
                     metadata[`x-qn-meta-${metaKey}`] = metaValue;
                 }
             }
-            const data: any = { fname: originalFileName, parts: parts, metadata: metadata };
+            const data: any = { fname: originalFileName, parts, metadata };
             if (header?.contentType) {
                 data.mimeType = header!.contentType;
             }
@@ -781,10 +781,10 @@ export class Kodo implements Adapter {
             this.call({
                 method: 'POST',
                 serviceName: ServiceName.Up,
-                path: path,
+                path,
                 data: JSON.stringify(data),
                 dataType: 'json',
-                s3RegionId: s3RegionId,
+                s3RegionId,
                 headers: { 'authorization': `UpToken ${token}` },
             }).then(() => { resolve(); }).catch(reject);
         });
@@ -800,7 +800,7 @@ export class Kodo implements Adapter {
         return this.client.call(options);
     }
 
-    protected callUrl<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+    protected callUrl<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
         return this.client.callUrls(urls, options);
     }
 
@@ -824,7 +824,7 @@ class KodoScope extends Kodo {
     constructor(sdkApiName: string, adapterOption: AdapterOption) {
         super(adapterOption);
         this.requestStats = {
-            sdkApiName: sdkApiName,
+            sdkApiName,
             requestsCount: 0,
         };
     }
@@ -898,10 +898,10 @@ function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
     const metadata: { [key: string]: string; } = {};
     for (const [metaKey, metaValue] of Object.entries(response.headers)) {
         if (metaKey?.startsWith('x-qn-meta-')) {
-            metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
+            metadata[metaKey.substring('x-qn-meta-'.length) as string] = (metaValue as string);
         }
     }
-    return { size: size, contentType: contentType, lastModified: lastModified, metadata: metadata };
+    return { size, contentType, lastModified, metadata };
 }
 
 

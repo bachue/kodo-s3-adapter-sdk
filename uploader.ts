@@ -3,7 +3,7 @@ import { FileHandle } from 'fs/promises';
 import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 export class Uploader {
-    private aborted: boolean = false;
+    private aborted = false;
     private static readonly userCanceledError = new Error('User Canceled');
 
     constructor(private readonly adapter: Adapter) {
@@ -68,7 +68,7 @@ export class Uploader {
                     return;
                 }
 
-                let throttle: Throttle | undefined = undefined;
+                let throttle: Throttle | undefined;
                 if (putFileOption?.uploadThrottleOption) {
                     const throttleGroup = putFileOption?.uploadThrottleGroup ?? new ThrottleGroup(putFileOption.uploadThrottleOption);
                     throttle = throttleGroup.throttle(putFileOption.uploadThrottleOption);
@@ -76,7 +76,7 @@ export class Uploader {
                 this.adapter.putObject(region, object, data.subarray(0, bytesRead), originalFileName,
                                        putFileOption?.header, {
                                            progressCallback: putFileOption?.putCallback?.progressCallback,
-                                           throttle: throttle,
+                                           throttle,
                                        }).then(resolve).catch(reject);
             }).catch(reject);
         });
@@ -134,7 +134,7 @@ export class Uploader {
                         return undefined;
                     };
 
-                    let progressCallback: ProgressCallback | undefined = undefined;
+                    let progressCallback: ProgressCallback | undefined;
                     if (putFileOption.putCallback?.progressCallback) {
                         progressCallback = (partUploaded: number, _partTotal: number) => {
                             putFileOption.putCallback!.progressCallback!(uploaded + partUploaded, fileSize);
@@ -142,11 +142,11 @@ export class Uploader {
                     }
                     this.adapter.uploadPart(region, object, recovered.uploadId, partNumber,
                                             data!.subarray(0, bytesRead), {
-                                                progressCallback: progressCallback,
+                                                progressCallback,
                                                 throttle: makeThrottle(),
                                             }).then((output) => {
                         data = undefined;
-                        const part: Part = { etag: output.etag, partNumber: partNumber };
+                        const part: Part = { etag: output.etag, partNumber };
                         if (putFileOption?.putCallback?.partPutCallback) {
                             try {
                                 putFileOption.putCallback.partPutCallback(part);
@@ -185,10 +185,10 @@ export interface PutFileOption {
 
 export interface RecoveredOption {
     uploadId: string,
-    parts: Array<Part>,
+    parts: Part[],
 }
 
-function checkParts(parts: Array<Part>): boolean {
+function checkParts(parts: Part[]): boolean {
     const partNumbers = new Set<number>();
 
     for (const part of parts) {
@@ -198,7 +198,7 @@ function checkParts(parts: Array<Part>): boolean {
     return partNumbers.size === parts.length;
 }
 
-function findPartsByNumber(parts: Array<Part>, partNumber: number): Part | undefined {
+function findPartsByNumber(parts: Part[], partNumber: number): Part | undefined {
     return parts.find((part) => part.partNumber === partNumber);
 }
 
@@ -207,7 +207,7 @@ function partsCountOfFile(fileSize: number, partSize: number): number {
     return ~~count;
 }
 
-function uploadedSizeOfParts(parts: Array<Part>, fileSize: number, partSize: number): number {
+function uploadedSizeOfParts(parts: Part[], fileSize: number, partSize: number): number {
     const partsCount = partsCountOfFile(fileSize, partSize);
     let uploaded = 0;
     parts.forEach((part) => {

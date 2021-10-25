@@ -53,7 +53,7 @@ export class HttpClient {
         private readonly uplogBuffer: UplogBuffer) {
     }
 
-    call<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+    call<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
         const urlString: string | undefined = urls.shift();
         if (!urlString) {
             return Promise.reject(new Error('urls is empty'));
@@ -68,7 +68,7 @@ export class HttpClient {
             'user-agent': this.clientOptions.userAgent,
         };
         if (options.appendAuthorization ?? true) {
-            headers['authorization'] = this.makeAuthorization(url, options);
+            headers.authorization = this.makeAuthorization(url, options);
         }
         if (options.contentType) {
             headers['content-type'] = options.contentType;
@@ -83,12 +83,12 @@ export class HttpClient {
             method: options.method,
             dataType: options.dataType,
             contentType: options.contentType,
-            headers: headers,
+            headers,
         });
         headers['x-reqid'] = reqId;
 
         return new Promise((resolve, reject) => {
-            let requestInfo: RequestInfo | undefined = undefined;
+            let requestInfo: RequestInfo | undefined;
             let multiJsonEncoded = false;
 
             if (options.dataType === 'multijson') {
@@ -101,7 +101,7 @@ export class HttpClient {
                 method: options.method,
                 dataType: options.dataType,
                 contentType: options.contentType,
-                headers: headers,
+                headers,
                 timeout: this.clientOptions.timeout,
                 followRedirect: true,
                 streaming: options.streaming,
@@ -116,21 +116,21 @@ export class HttpClient {
                         url: url.toString(),
                         method: info.method,
                         headers: info.headers,
-                        data: data,
+                        data,
                     };
                     if (this.clientOptions.requestCallback) {
                         this.clientOptions.requestCallback(requestInfo);
                     }
                 },
             };
-            let callbackError: Error | undefined = undefined;
+            let callbackError: Error | undefined;
             if (data) {
                 if (options.uploadProgress) {
                     const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     stream.put(data);
                     stream.stop();
                     let uploaded = 0;
-                    let total = data.length;
+                    const total = data.length;
                     stream.on('data', (chunk) => {
                         uploaded += chunk.length;
                         try {
@@ -219,7 +219,7 @@ export class HttpClient {
                             }
                         });
                     } else {
-                        let error: Error | undefined = undefined;
+                        let error: Error | undefined;
                         if (response.data) {
                             try {
                                 const data = JSON.parse(response.data);
@@ -287,7 +287,7 @@ export class HttpClient {
             url.pathname = options.path;
         }
 
-        let protocol = this.clientOptions.protocol;
+        const protocol = this.clientOptions.protocol;
         if (protocol) {
             switch (protocol) {
                 case "http":
@@ -307,7 +307,7 @@ export class HttpClient {
     }
 
     private makeAuthorization(url: URL, options: URLRequestOptions): string {
-        let data: string | undefined = undefined;
+        let data: string | undefined;
         if (options.data) {
             if (options.dataType === 'json') {
                 data = JSON.stringify(options.data);
@@ -321,7 +321,7 @@ export class HttpClient {
     }
 
     private isRetry(response: HttpClientResponse<any>): boolean {
-        const dontRetryStatusCodes: Array<number> = [501, 579, 599, 608, 612, 614, 616,
+        const dontRetryStatusCodes: number[] = [501, 579, 599, 608, 612, 614, 616,
             618, 630, 631, 632, 640, 701];
         return !response.headers['x-reqid'] ||
             response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);

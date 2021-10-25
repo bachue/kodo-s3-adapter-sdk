@@ -70,7 +70,7 @@ export const UplogBufferFilePath = path.join(os.homedir(), '.kodo-s3-adapter-sdk
 export const UplogBufferFileLockPath = path.join(os.homedir(), '.kodo-s3-adapter-sdk', 'uplog-buffer.lock');
 
 export class UplogBuffer {
-    private static uploadBufferedEntries: Array<string> = [];
+    private static uploadBufferedEntries: string[] = [];
     private static uploadBufferFd: number | undefined = undefined;
 
     constructor(private readonly option: UplogOption) {

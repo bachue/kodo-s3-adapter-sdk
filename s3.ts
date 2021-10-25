@@ -19,7 +19,7 @@ import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
 import { covertStorageClassToS3StorageClass } from './utils'
 
-export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
+export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
 interface RequestOptions {
     stats?: RequestStats,
@@ -144,7 +144,7 @@ export class S3 extends Kodo {
     }
 
     private sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
-        let requestInfo: RequestInfo | undefined = undefined;
+        let requestInfo: RequestInfo | undefined;
         const beginTime = new Date().getTime();
         const uplog: RequestUplogEntry = {
             log_type: LogType.Request,
@@ -180,7 +180,7 @@ export class S3 extends Kodo {
                 uplog.method = request.httpRequest.method;
                 uplog.path = request.httpRequest.path;
                 requestInfo = {
-                    url: url,
+                    url,
                     method: request.httpRequest.method,
                     headers: request.httpRequest.headers,
                     data: request.httpRequest.body,
@@ -272,21 +272,21 @@ export class S3 extends Kodo {
         });
     }
 
-    listBuckets(): Promise<Array<Bucket>> {
+    listBuckets(): Promise<Bucket[]> {
         return new Promise((resolve, reject) => {
             this.getClient().then((s3) => {
                 this.sendS3Request(s3.listBuckets()).then((data: any) => {
-                    const bucketNamePromises: Array<Promise<string>> = data.Buckets!.map((info: any) => {
+                    const bucketNamePromises: Promise<string>[] = data.Buckets!.map((info: any) => {
                         return this.fromS3BucketIdToKodoBucketName(info.Name);
                     });
-                    const bucketLocationPromises: Array<Promise<string | undefined>> = data.Buckets!.map((info: any) => {
+                    const bucketLocationPromises: Promise<string | undefined>[] = data.Buckets!.map((info: any) => {
                         return new Promise((resolve) => {
                             this._getBucketLocation(s3, info.Name).then(resolve, () => { resolve(undefined); });
                         });
                     });
                     Promise.all([Promise.all(bucketNamePromises), Promise.all(bucketLocationPromises)])
                         .then(([bucketNames, bucketLocations]) => {
-                            const bucketInfos: Array<Bucket> = data.Buckets!.map((info: any, index: number) => {
+                            const bucketInfos: Bucket[] = data.Buckets!.map((info: any, index: number) => {
                                 return {
                                     id: info.Name, name: bucketNames[index],
                                     createDate: info.CreationDate,
@@ -300,7 +300,7 @@ export class S3 extends Kodo {
         });
     }
 
-    listDomains(_s3RegionId: string, _bucket: string): Promise<Array<Domain>> {
+    listDomains(_s3RegionId: string, _bucket: string): Promise<Domain[]> {
         return Promise.resolve([]);
     }
 
@@ -383,7 +383,7 @@ export class S3 extends Kodo {
     getObjectStream(s3RegionId: string, object: Object, _domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
-                let range: string | undefined = undefined;
+                let range: string | undefined;
                 if (option?.rangeStart || option?.rangeEnd) {
                     range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
                 }
@@ -481,26 +481,26 @@ export class S3 extends Kodo {
         });
     }
 
-    moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    moveObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.s3BatchOps(transferObjects.map((to) => new MoveObjectOp(this, s3RegionId, to)), callback);
     }
 
-    copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    copyObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.s3BatchOps(transferObjects.map((to) => new CopyObjectOp(this, s3RegionId, to)), callback);
     }
 
-    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.s3BatchOps(keys.map((key) => new SetObjectStorageClassOp(this, s3RegionId, { bucket, key }, storageClass)), callback);
     }
 
-    restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.s3BatchOps(keys.map((key) => new RestoreObjectOp(this, s3RegionId, { bucket, key }, days)), callback);
     }
 
-    private s3BatchOps(objectOps: Array<ObjectOp>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    private s3BatchOps(objectOps: ObjectOp[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return new Promise((resolve, reject) => {
             const semaphore = new Semaphore(100);
-            const promises: Array<Promise<PartialObjectError>> = objectOps.map((objectOp, index) => {
+            const promises: Promise<PartialObjectError>[] = objectOps.map((objectOp, index) => {
                 return new Promise((resolve, reject) => {
                     semaphore.acquire().then((release) => {
                         objectOp.getOpPromise().then(() => {
@@ -525,12 +525,12 @@ export class S3 extends Kodo {
         });
     }
 
-    deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    deleteObjects(s3RegionId: string, bucket: string, keys: string[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(bucket)]).then(([s3, bucketId]) => {
                 const semaphore = new Semaphore(100);
                 const batchCount = 100;
-                const batches: Array<Array<string>> = [];
+                const batches: string[][] = [];
                 while (keys.length >= batchCount) {
                     batches.push(keys.splice(0, batchCount));
                 }
@@ -538,9 +538,9 @@ export class S3 extends Kodo {
                     batches.push(keys);
                 }
                 let counter = 0;
-                const promises: Array<Promise<Array<PartialObjectError>>> = batches.map((batch) => {
+                const promises: Promise<PartialObjectError[]>[] = batches.map((batch) => {
                     const firstIndexInCurrentBatch = counter;
-                    const partialObjectErrors: Array<PartialObjectError> = new Array(batch.length);
+                    const partialObjectErrors: PartialObjectError[] = new Array(batch.length);
                     counter += batch.length;
                     return new Promise((resolve, reject) => {
                         semaphore.acquire().then((release) => {
@@ -560,7 +560,7 @@ export class S3 extends Kodo {
                                         if (callback && callback(index + firstIndexInCurrentBatch) === false) {
                                             aborted = true;
                                         }
-                                        partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key! };
+                                        partialObjectErrors[index] = { bucket, key: deletedObject.Key! };
                                     });
                                 }
                                 if (results.Errors) {
@@ -573,7 +573,7 @@ export class S3 extends Kodo {
                                         if (callback && callback(index + firstIndexInCurrentBatch, error) === false) {
                                             aborted = true;
                                         }
-                                        partialObjectErrors[index] = { bucket: bucket, key: deletedObject.Key!, error: error };
+                                        partialObjectErrors[index] = { bucket, key: deletedObject.Key!, error };
                                     });
                                 }
                                 if (aborted) {
@@ -588,7 +588,7 @@ export class S3 extends Kodo {
                                         if (callback && callback(index + firstIndexInCurrentBatch, err) === false) {
                                             aborted = true;
                                         }
-                                        partialObjectErrors[index] = { bucket: bucket, key: key, error: err };
+                                        partialObjectErrors[index] = { bucket, key, error: err };
                                     });
                                 }
                                 if (aborted) {
@@ -600,8 +600,8 @@ export class S3 extends Kodo {
                         });
                     });
                 });
-                Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
-                    let results: Array<PartialObjectError> = [];
+                Promise.all(promises).then((batches: PartialObjectError[][]) => {
+                    let results: PartialObjectError[] = [];
                     for (const batch of batches) {
                         results = results.concat(batch);
                     }
@@ -708,7 +708,7 @@ export class S3 extends Kodo {
                 if (data.Contents && data.Contents.length > 0) {
                     results.objects = results.objects.concat(data.Contents.map((object: AWS.S3.Types.Object) => {
                         return {
-                            bucket: bucket, key: object.Key!, size: object.Size!,
+                            bucket, key: object.Key!, size: object.Size!,
                             lastModified: object.LastModified!, storageClass: toStorageClass(object.StorageClass),
                         };
                     }));
@@ -718,7 +718,7 @@ export class S3 extends Kodo {
                         results.commonPrefixes = [];
                     }
                     const newCommonPrefixes = data.CommonPrefixes.map((commonPrefix: AWS.S3.Types.CommonPrefix) => {
-                        return { bucket: bucket, key: commonPrefix.Prefix! };
+                        return { bucket, key: commonPrefix.Prefix! };
                     });
                     for (const newCommonPrefix of newCommonPrefixes) {
                         let foundDup = false;
@@ -805,7 +805,7 @@ export class S3 extends Kodo {
         });
     }
 
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, _originalFileName: string, _header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Part[], _originalFileName: string, _header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
             Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]).then(([s3, bucketId]) => {
                 const params: AWS.S3.Types.CompleteMultipartUploadRequest = {
@@ -842,7 +842,7 @@ class S3Scope extends S3 {
     constructor(sdkApiName: string, adapterOption: AdapterOption) {
         super(adapterOption);
         this.requestStats = {
-            sdkApiName: sdkApiName,
+            sdkApiName,
             requestsCount: 0,
         };
     }

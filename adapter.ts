@@ -9,22 +9,22 @@ export abstract class Adapter {
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
     abstract getBucketLocation(bucket: string): Promise<string>;
-    abstract listBuckets(): Promise<Array<Bucket>>;
-    abstract listDomains(region: string, bucket: string): Promise<Array<Domain>>;
+    abstract listBuckets(): Promise<Bucket[]>;
+    abstract listDomains(region: string, bucket: string): Promise<Domain[]>;
 
     abstract isExists(region: string, object: Object): Promise<boolean>;
     abstract getFrozenInfo(region: string, object: Object): Promise<FrozenInfo>;
     abstract restoreObject(region: string, object: Object, days: number): Promise<void>;
-    abstract restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
+    abstract restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]>;
     abstract setObjectStorageClass(region: string, object: Object, storageClass: StorageClass): Promise<void>;
-    abstract setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
+    abstract setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
-    abstract moveObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
+    abstract moveObjects(region: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]>;
     abstract copyObject(region: string, transferObject: TransferObject): Promise<void>;
-    abstract copyObjects(region: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
+    abstract copyObjects(region: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]>;
     abstract deleteObject(region: string, object: Object): Promise<void>;
-    abstract deleteObjects(region: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>>;
+    abstract deleteObjects(region: string, bucket: string, keys: string[], callback?: BatchCallback): Promise<PartialObjectError[]>;
 
     abstract getObjectInfo(region: string, object: Object): Promise<ObjectInfo>;
     abstract getObjectHeader(region: string, object: Object, domain?: Domain): Promise<ObjectHeader>;
@@ -37,7 +37,7 @@ export abstract class Adapter {
     abstract createMultipartUpload(region: string, object: Object, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput>;
     abstract uploadPart(region: string, object: Object, uploadId: string, partNumber: number,
         data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput>;
-    abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void>;
+    abstract completeMultipartUpload(region: string, object: Object, uploadId: string, parts: Part[], originalFileName: string, header?: SetObjectHeader): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
 
@@ -55,15 +55,15 @@ export interface ListObjectsOption {
 }
 
 export interface ListedObjects {
-    objects: Array<ObjectInfo>;
-    commonPrefixes?: Array<Object>;
+    objects: ObjectInfo[];
+    commonPrefixes?: Object[];
     nextContinuationToken?: string,
 }
 
 export interface AdapterOption {
     accessKey: string;
     secretKey: string;
-    regions: Array<Region>;
+    regions: Region[];
     ucUrl?: string;
     appendedUserAgent?: string;
     appName?: string;

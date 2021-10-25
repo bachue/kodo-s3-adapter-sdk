@@ -78,7 +78,7 @@ export class KodoHttpClient {
         });
     }
 
-    callUrls<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+    callUrls<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
         return this.httpClient.call(urls, options);
     }
 
@@ -87,7 +87,7 @@ export class KodoHttpClient {
         this.regionService.clearCache();
     }
 
-    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string, stats?: RequestStats): Promise<Array<string>> {
+    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string, stats?: RequestStats): Promise<string[]> {
         return new Promise((resolve, reject) => {
             let key: string;
             if (s3RegionId) {
@@ -115,7 +115,7 @@ export class KodoHttpClient {
                         uplogBufferSize: this.sharedOptions.uplogBufferSize,
                         requestCallback: this.sharedOptions.requestCallback,
                         responseCallback: this.sharedOptions.responseCallback,
-                        stats: stats,
+                        stats,
                     });
                 } else {
                     return new Promise((resolve, reject) => {
@@ -123,7 +123,7 @@ export class KodoHttpClient {
                             timeout: this.sharedOptions.timeout,
                             retry: this.sharedOptions.retry,
                             retryDelay: this.sharedOptions.retryDelay,
-                            stats: stats,
+                            stats,
                         }).then((regions) => {
                             if (regions.length == 0) {
                                 reject(Error('regions is empty'));
@@ -163,7 +163,7 @@ export class KodoHttpClient {
                 newUploadPolicy({
                     bucket: "testbucket",
                 }));
-            let headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
+            const headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
             if (KodoHttpClient.logClientId) {
                 headers['X-Log-Client-Id'] = KodoHttpClient.logClientId;
             }
@@ -177,8 +177,8 @@ export class KodoHttpClient {
                     method: 'POST',
                     serviceName: ServiceName.Uplog,
                     path: 'log/4',
-                    query: query,
-                    headers: headers,
+                    query,
+                    headers,
                     data: compressedLog,
                 }).then((response) => {
                     if (!KodoHttpClient.logClientId && response.headers['X-Log-Client-Id']) {
@@ -190,7 +190,7 @@ export class KodoHttpClient {
         });
     }
 
-    private getUrlsFromRegion(serviceName: ServiceName, region: Region): Array<string> {
+    private getUrlsFromRegion(serviceName: ServiceName, region: Region): string[] {
         switch (serviceName) {
             case ServiceName.Up:
                 return [...region.upUrls];

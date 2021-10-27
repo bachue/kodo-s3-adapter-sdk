@@ -1,4 +1,4 @@
-import { Adapter, Object, Domain, ProgressCallback, ObjectHeader } from './adapter';
+import { Adapter, StorageObject, Domain, ProgressCallback, ObjectHeader } from './adapter';
 import { Readable, Writable } from 'stream';
 import { createWriteStream, WriteStream, constants as fsConstants } from 'fs';
 import { promises as fsPromises } from 'fs';
@@ -13,7 +13,7 @@ export class Downloader {
     constructor(private readonly adapter: Adapter) {
     }
 
-    getObjectToFile(region: string, object: Object, filePath: string, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
+    getObjectToFile(region: string, object: StorageObject, filePath: string, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
         this.aborted = false;
 
         return new Promise((resolve, reject) => {
@@ -29,7 +29,7 @@ export class Downloader {
                 if (getFileOption?.recoveredFrom) {
                     fsPromises.stat(filePath).then((stat) => {
                         let recoveredFrom = stat.size;
-                        if (typeof (getFileOption.recoveredFrom) === 'number') {
+                        if (typeof(getFileOption.recoveredFrom) === 'number') {
                             recoveredFrom = getFileOption.recoveredFrom > stat.size ? stat.size : getFileOption.recoveredFrom;
                         }
                         this.getObjectToFilePath(region, object, filePath, recoveredFrom, header.size, 0, domain, getFileOption).then(resolve).catch(reject);
@@ -41,7 +41,7 @@ export class Downloader {
         });
     }
 
-    private getObjectToFilePath(region: string, object: Object, filePath: string, offset: number, totalObjectSize: number,
+    private getObjectToFilePath(region: string, object: StorageObject, filePath: string, offset: number, totalObjectSize: number,
         retriedOnThisOffset: number, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const fileWriteStream = createWriteStream(filePath, {
@@ -83,7 +83,7 @@ export class Downloader {
         });
     }
 
-    private getObjectToFileWriteStream(region: string, object: Object, fileWriteStream: WriteStream,
+    private getObjectToFileWriteStream(region: string, object: StorageObject, fileWriteStream: WriteStream,
         offset: number, totalObjectSize: number, domain?: Domain, getFileOption?: GetFileOption): Promise<GetResult> {
 
         let tid: number | undefined;
@@ -93,7 +93,6 @@ export class Downloader {
                 tid = undefined;
             }
         };
-
         return new Promise((resolve, reject) => {
             this.adapter.getObjectStream(region, object, domain, { rangeStart: offset }).then((reader) => {
                 let receivedDataBytes = offset;

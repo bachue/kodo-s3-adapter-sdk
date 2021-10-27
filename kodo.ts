@@ -13,7 +13,7 @@ import { HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
 import {
-    Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
+    Adapter, AdapterOption, Bucket, Domain, StorageObject, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
     TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
     InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption,
 } from './adapter';
@@ -262,7 +262,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    isExists(s3RegionId: string, object: Object): Promise<boolean> {
+    isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {
         return new Promise((resolve, reject) => {
             this.getObjectInfo(s3RegionId, object).then(() => {
                 resolve(true);
@@ -276,7 +276,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    deleteObject(s3RegionId: string, object: Object): Promise<void> {
+    deleteObject(s3RegionId: string, object: StorageObject): Promise<void> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
@@ -289,8 +289,8 @@ export class Kodo implements Adapter {
         });
     }
 
-    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-        header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
+    putObject(s3RegionId: string, object: StorageObject, data: Buffer, originalFileName: string,
+              header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(
                 this.adapterOption.accessKey,
@@ -331,7 +331,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getObject(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectGetResult> {
+    getObject(s3RegionId: string, object: StorageObject, domain?: Domain): Promise<ObjectGetResult> {
         return new Promise((resolve, reject) => {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
                 this.callUrl([url.toString()], {
@@ -345,7 +345,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
+    getObjectStream(s3RegionId: string, object: StorageObject, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
         const headers: { [headerName: string]: string; } = {};
         if (option?.rangeStart || option?.rangeEnd) {
             headers.Range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
@@ -366,7 +366,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getObjectURL(s3RegionId: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL> {
+    getObjectURL(s3RegionId: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL> {
         return new Promise((resolve, reject) => {
             const domainPromise: Promise<Domain> = new Promise((resolve, reject) => {
                 if (domain) {
@@ -401,7 +401,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getObjectInfo(s3RegionId: string, object: Object): Promise<ObjectInfo> {
+    getObjectInfo(s3RegionId: string, object: StorageObject): Promise<ObjectInfo> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'GET',
@@ -419,7 +419,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getObjectHeader(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectHeader> {
+    getObjectHeader(s3RegionId: string, object: StorageObject, domain?: Domain): Promise<ObjectHeader> {
         return new Promise((resolve, reject) => {
             this.getObjectURL(s3RegionId, object, domain).then((url) => {
                 this.callUrl([url.toString()], {
@@ -562,7 +562,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
+    getFrozenInfo(s3RegionId: string, object: StorageObject): Promise<FrozenInfo> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
@@ -589,7 +589,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    restoreObject(s3RegionId: string, object: Object, days: number): Promise<void> {
+    restoreObject(s3RegionId: string, object: StorageObject, days: number): Promise<void> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
@@ -602,7 +602,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    setObjectStorageClass(s3RegionId: string, object: Object, storageClass: StorageClass): Promise<void> {
+    setObjectStorageClass(s3RegionId: string, object: StorageObject, storageClass: StorageClass): Promise<void> {
         return new Promise((resolve, reject) => {
             this.call({
                 method: 'POST',
@@ -697,7 +697,7 @@ export class Kodo implements Adapter {
         }).catch(reject);
     }
 
-    createMultipartUpload(s3RegionId: string, object: Object, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
+    createMultipartUpload(s3RegionId: string, object: StorageObject, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(
                 this.adapterOption.accessKey,
@@ -723,7 +723,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
+    uploadPart(s3RegionId: string, object: StorageObject, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(
                 this.adapterOption.accessKey,
@@ -755,7 +755,7 @@ export class Kodo implements Adapter {
         });
     }
 
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Part[], originalFileName: string, header?: SetObjectHeader): Promise<void> {
+    completeMultipartUpload(s3RegionId: string, object: StorageObject, uploadId: string, parts: Part[], originalFileName: string, header?: SetObjectHeader): Promise<void> {
         return new Promise((resolve, reject) => {
             const token = makeUploadToken(
                 this.adapterOption.accessKey,
@@ -875,7 +875,7 @@ function toStorageClass(type?: number): StorageClass {
     }
 }
 
-function encodeObject(object: Object): string {
+function encodeObject(object: StorageObject): string {
     return encodeBucketKey(object.bucket, object.key);
 }
 
@@ -911,7 +911,7 @@ export interface BucketIdName {
 }
 
 abstract class ObjectOp {
-    abstract getObject(): Object;
+    abstract getObject(): StorageObject;
     abstract getOp(): string;
 }
 
@@ -920,7 +920,7 @@ class MoveObjectOp extends ObjectOp {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object.from;
     }
 
@@ -934,7 +934,7 @@ class CopyObjectOp extends ObjectOp {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object.from;
     }
 
@@ -944,11 +944,11 @@ class CopyObjectOp extends ObjectOp {
 }
 
 class DeleteObjectOp extends ObjectOp {
-    constructor(private readonly object: Object) {
+    constructor(private readonly object: StorageObject) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 
@@ -958,11 +958,11 @@ class DeleteObjectOp extends ObjectOp {
 }
 
 class SetObjectStorageClassOp extends ObjectOp {
-    constructor(private readonly object: Object, private readonly storageClass: StorageClass) {
+    constructor(private readonly object: StorageObject, private readonly storageClass: StorageClass) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 
@@ -972,11 +972,11 @@ class SetObjectStorageClassOp extends ObjectOp {
 }
 
 class RestoreObjectsOp extends ObjectOp {
-    constructor(private readonly object: Object, private readonly days: number) {
+    constructor(private readonly object: StorageObject, private readonly days: number) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 

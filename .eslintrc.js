@@ -9,7 +9,12 @@ module.exports = {
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
   ],
-  ignorePatterns: [
-    'node_modules', 'dist'
-  ],
+  rules: {
+    'object-curly-spacing': 'off',
+    '@typescript-eslint/object-curly-spacing': ['error', 'always'],
+    quotes: 'off',
+    '@typescript-eslint/quotes': ['error', 'single'],
+    semi: 'off',
+    '@typescript-eslint/semi': ['error', 'always'],
+  },
 };

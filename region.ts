@@ -129,8 +129,8 @@ export class Region {
     private static fromResponseBody(ucUrl: string, r: any): Region {
         const translatedDescriptions: { [lang: string]: string; } = {};
         for (const fieldName in r) {
-            if (fieldName.startsWith("description_")) {
-                const langName = fieldName.substring("description_".length);
+            if (fieldName.startsWith('description_')) {
+                const langName = fieldName.substring('description_'.length);
                 translatedDescriptions[langName] = r[fieldName];
             }
         }

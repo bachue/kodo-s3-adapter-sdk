@@ -22,7 +22,8 @@ export class Qiniu {
 
     private regions: Region[];
 
-    constructor(private readonly accessKey: string,
+    constructor(
+        private readonly accessKey: string,
         private readonly secretKey: string,
         private readonly ucUrl?: string,
         private readonly appendedUserAgent?: string,

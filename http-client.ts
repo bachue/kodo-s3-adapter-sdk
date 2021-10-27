@@ -54,6 +54,7 @@ export class HttpClient {
     }
 
     call<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        // check url
         const urlString: string | undefined = urls.shift();
         if (!urlString) {
             return Promise.reject(new Error('urls is empty'));
@@ -64,6 +65,8 @@ export class HttpClient {
         } else {
             url = this.makeUrl(urlString, options);
         }
+
+        // process headers
         const headers: http.IncomingHttpHeaders = {
             'user-agent': this.clientOptions.userAgent,
         };
@@ -87,7 +90,9 @@ export class HttpClient {
         });
         headers['x-reqid'] = reqId;
 
+        // need refactoring
         return new Promise((resolve, reject) => {
+            // create request Options
             let requestInfo: RequestInfo | undefined;
             let multiJsonEncoded = false;
 
@@ -118,9 +123,7 @@ export class HttpClient {
                         headers: info.headers,
                         data,
                     };
-                    if (this.clientOptions.requestCallback) {
-                        this.clientOptions.requestCallback(requestInfo);
-                    }
+                    this.clientOptions.requestCallback?.(requestInfo);
                 },
             };
             let callbackError: Error | undefined;
@@ -140,6 +143,7 @@ export class HttpClient {
                                 stream.destroy(err);
                             }
                             callbackError = err;
+
                             reject(err);
                         }
                     });
@@ -172,8 +176,8 @@ export class HttpClient {
                 if (multiJsonEncoded && response.data && response.data instanceof Buffer) {
                     try {
                         response.data = response.data.toString().split(/\s*\n+\s*/).
-                            filter((line: string) => line.length).
-                            map((line: string) => JSON.parse(line));
+                        filter((line: string) => line.length).
+                        map((line: string) => JSON.parse(line));
                     } catch {
                         // ignore
                     }
@@ -290,11 +294,11 @@ export class HttpClient {
         const protocol = this.clientOptions.protocol;
         if (protocol) {
             switch (protocol) {
-                case "http":
-                    url.protocol = "http";
+                case 'http':
+                    url.protocol = 'http';
                     break;
-                case "https":
-                    url.protocol = "https";
+                case 'https':
+                    url.protocol = 'https';
                     break;
             }
         }

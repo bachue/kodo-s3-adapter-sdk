@@ -15,7 +15,7 @@ export function parsePort(url: URL): number {
     }
 }
 
-enum FileType {
+export enum FileType {
     Standard = 0,
     InfrequentAccess,
     Glacier,
@@ -34,7 +34,7 @@ export function convertStorageClassToFileType(storageClass?: StorageClass): File
     }
 }
 
-enum KodoS3StorageClass {
+export enum KodoS3StorageClass {
     Standard = 'STANDARD',
     InfrequentAccess = 'LINE',
     Glacier = 'GLACIER',

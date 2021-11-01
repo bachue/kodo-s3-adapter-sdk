@@ -38,7 +38,7 @@ import {
 import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
 import { RequestStats, URLRequestOptions } from './http-client';
 import { LogType, SdkApiUplogEntry, UplogEntry } from './uplog';
-import { convertStorageClassToFileType } from './utils';
+import { FileType, convertStorageClassToFileType } from './utils';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
@@ -140,7 +140,6 @@ export class Kodo implements Adapter {
         ));
         const regionsInfo = await Promise.all(regionsPromises);
         return response.data.map((info: any, index: number) => {
-            // lihs: convert to enum
             let grantedPermission: string | undefined;
             switch (info.perm) {
                 case 1:
@@ -395,7 +394,6 @@ export class Kodo implements Adapter {
                 throw new Error('no domain found');
             }
             const domainTypeScope = (domain: Domain): number => {
-                // lihs: convert to enum
                 switch (domain.type) {
                     case 'normal':
                         return 1;
@@ -894,11 +892,11 @@ class KodoScope extends Kodo {
 
 function toStorageClass(type?: number): StorageClass {
     switch (type ?? 0) {
-        case 0:
+        case FileType.Standard:
             return 'Standard';
-        case 1:
+        case FileType.InfrequentAccess:
             return 'InfrequentAccess';
-        case 2:
+        case FileType.Glacier:
             return 'Glacier';
         default:
             throw new Error(`Unknown file type: ${type}`);

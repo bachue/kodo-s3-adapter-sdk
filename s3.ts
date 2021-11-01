@@ -700,18 +700,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
 
-        let storageClassParam: AWS.S3.StorageClass = 'STANDARD';
-        switch (storageClass) {
-            case 'Standard':
-                storageClassParam = 'STANDARD';
-                break;
-            case 'InfrequentAccess':
-                storageClassParam = 'LINE';
-                break;
-            case 'Glacier':
-                storageClassParam = 'GLACIER';
-                break;
-        }
+        const storageClassParam = covertStorageClassToS3StorageClass(storageClass);
         const request = s3.copyObject({
             Bucket: bucketId, Key: object.key,
             CopySource: `/${bucketId}/${encodeURIComponent(object.key)}`,

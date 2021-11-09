@@ -70,7 +70,7 @@ export class Downloader {
                 domain,
                 getFileOption,
             );
-            // retries(getResult: GetResult)
+
             const receivedDataBytes: number = getResult.downloaded;
             const err: Error | undefined = getResult.error;
 
@@ -86,35 +86,38 @@ export class Downloader {
                 return;
             }
 
-            if (receivedDataBytes > offset) {
-                await this.getObjectToFilePath(
-                    region,
-                    object,
-                    filePath,
-                    receivedDataBytes,
-                    totalObjectSize,
-                    0,
-                    domain,
-                    getFileOption,
-                );
-                return;
-            }
+            const retries = async (): Promise<void> => {
+                if (receivedDataBytes > offset) {
+                    await this.getObjectToFilePath(
+                        region,
+                        object,
+                        filePath,
+                        receivedDataBytes,
+                        totalObjectSize,
+                        0,
+                        domain,
+                        getFileOption,
+                    );
+                    return;
+                }
 
-            if (retriedOnThisOffset < (getFileOption?.retriesOnSameOffset ?? DEFAULT_RETRIES_ON_SAME_OFFSET)) {
-                await this.getObjectToFilePath(
-                    region,
-                    object,
-                    filePath,
-                    receivedDataBytes,
-                    totalObjectSize,
-                    retriedOnThisOffset + 1,
-                    domain,
-                    getFileOption,
-                );
-                return;
-            }
+                if (retriedOnThisOffset < (getFileOption?.retriesOnSameOffset ?? DEFAULT_RETRIES_ON_SAME_OFFSET)) {
+                    await this.getObjectToFilePath(
+                        region,
+                        object,
+                        filePath,
+                        receivedDataBytes,
+                        totalObjectSize,
+                        retriedOnThisOffset + 1,
+                        domain,
+                        getFileOption,
+                    );
+                    return;
+                }
 
-            throw new Error(`File content size mismatch, got ${receivedDataBytes}, expected ${totalObjectSize}`);
+                throw new Error(`File content size mismatch, got ${receivedDataBytes}, expected ${totalObjectSize}`);
+            };
+            await retries();
         } finally {
             if (!fileWriteStream.destroyed) {
                 fileWriteStream.destroy();

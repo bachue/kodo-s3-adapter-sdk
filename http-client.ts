@@ -175,9 +175,9 @@ export class HttpClient {
             HttpClient.httpClient.request(url.toString(), requestOption).then((response) => {
                 if (multiJsonEncoded && response.data && response.data instanceof Buffer) {
                     try {
-                        response.data = response.data.toString().split(/\s*\n+\s*/).
-                        filter((line: string) => line.length).
-                        map((line: string) => JSON.parse(line));
+                        response.data = response.data.toString().split(/\s*\n+\s*/)
+                            .filter((line: string) => line.length)
+                            .map((line: string) => JSON.parse(line));
                     } catch {
                         // ignore
                     }

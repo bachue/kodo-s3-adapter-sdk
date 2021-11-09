@@ -674,7 +674,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                             },
                         },
                         partSize: 1 << 20,
-                        chunkTimeout: 3000,
+                        chunkTimeout: 30000,
                         downloadThrottleOption: { rate: 1 << 30 },
                     });
                     expect(fileDownloaded).to.equal((1 << 20) * 2);
@@ -745,7 +745,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 },
                             },
                             partSize: 1 << 20,
-                            chunkTimeout: 3000,
+                            chunkTimeout: 30000,
                         });
                         expect(fileDownloaded).to.equal((1 << 20) * 11);
 
@@ -766,7 +766,6 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 }
                                 resolve(md5(buf, { encoding: 'binary', asBytes: true }));
                             });
-
                         });
                         expect(md5FromSource).to.eql(md5FromObject);
                     }
@@ -986,7 +985,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 },
                             },
                             partSize: 1 << 20,
-                            chunkTimeout: 3000,
+                            chunkTimeout: 30000,
                         });
                         expect(fileDownloaded).to.equal((1 << 20) * 11);
 
@@ -1062,7 +1061,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                                 },
                             },
                             partSize: 1 << 10,
-                            chunkTimeout: 3000,
+                            chunkTimeout: 30000,
                         });
                         expect(fileDownloaded).to.equal((1 << 10) * 11);
 

@@ -29,7 +29,7 @@ export class Downloader {
                 if (getFileOption?.recoveredFrom) {
                     fsPromises.stat(filePath).then((stat) => {
                         let recoveredFrom = stat.size;
-                        if (typeof(getFileOption.recoveredFrom) === 'number') {
+                        if (typeof (getFileOption.recoveredFrom) === 'number') {
                             recoveredFrom = getFileOption.recoveredFrom > stat.size ? stat.size : getFileOption.recoveredFrom;
                         }
                         this.getObjectToFilePath(region, object, filePath, recoveredFrom, header.size, 0, domain, getFileOption).then(resolve).catch(reject);
@@ -42,7 +42,7 @@ export class Downloader {
     }
 
     private getObjectToFilePath(region: string, object: Object, filePath: string, offset: number, totalObjectSize: number,
-                                retriedOnThisOffset: number, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
+        retriedOnThisOffset: number, domain?: Domain, getFileOption?: GetFileOption): Promise<void> {
         return new Promise((resolve, reject) => {
             const fileWriteStream = createWriteStream(filePath, {
                 flags: <any>(fsConstants.O_CREAT | fsConstants.O_WRONLY | fsConstants.O_NONBLOCK),
@@ -58,10 +58,10 @@ export class Downloader {
                     resolve();
                 } else if (receivedDataBytes > offset) {
                     this.getObjectToFilePath(region, object, filePath, receivedDataBytes, totalObjectSize,
-                                             0, domain, getFileOption).then(resolve).catch(reject);
+                        0, domain, getFileOption).then(resolve).catch(reject);
                 } else if (retriedOnThisOffset < (getFileOption?.retriesOnSameOffset ?? DEFAULT_RETRIES_ON_SAME_OFFSET)) {
                     this.getObjectToFilePath(region, object, filePath, receivedDataBytes, totalObjectSize,
-                                             retriedOnThisOffset + 1, domain, getFileOption).then(resolve).catch(reject);
+                        retriedOnThisOffset + 1, domain, getFileOption).then(resolve).catch(reject);
                 } else if (err) {
                     reject(err);
                 } else {
@@ -84,12 +84,20 @@ export class Downloader {
     }
 
     private getObjectToFileWriteStream(region: string, object: Object, fileWriteStream: WriteStream,
-                                       offset: number, totalObjectSize: number, domain?: Domain, getFileOption?: GetFileOption): Promise<GetResult> {
+        offset: number, totalObjectSize: number, domain?: Domain, getFileOption?: GetFileOption): Promise<GetResult> {
+
+        let tid: number | undefined;
+        const clearChunkTimeout = () => {
+            if (tid) {
+                clearTimeout(tid);
+                tid = undefined;
+            }
+        };
+
         return new Promise((resolve, reject) => {
             this.adapter.getObjectStream(region, object, domain, { rangeStart: offset }).then((reader) => {
                 let receivedDataBytes = offset;
                 let thisPartSize = 0;
-                let tid: number | undefined = undefined;
                 let chain: Readable | Writable = reader.on('data', (chunk) => {
                     if (this.aborted) {
                         if (!reader.destroyed) {
@@ -102,16 +110,13 @@ export class Downloader {
 
                     receivedDataBytes += chunk.length;
                     if (getFileOption?.chunkTimeout) {
-                        if (tid) {
-                            clearTimeout(tid);
-                            tid = undefined;
-                        }
-                        tid = <any>setTimeout(() => {
-                            const timeoutErr = new Error('Timeout');
+                        clearChunkTimeout();
+                        tid = (setTimeout(() => {
+                            const timeoutErr = new Error('Chunk Timeout');
                             if (!reader.destroyed) {
                                 reader.destroy(timeoutErr);
                             }
-                        }, getFileOption.chunkTimeout);
+                        }, getFileOption.chunkTimeout) as any);
                     }
                     if (getFileOption?.getCallback?.progressCallback) {
                         try {
@@ -157,12 +162,14 @@ export class Downloader {
                     chain = chain.pipe(throttleGroup.throttle(getFileOption.downloadThrottleOption));
                 }
                 chain.pipe(fileWriteStream).on('error', (err) => {
+                    clearChunkTimeout();
                     if (this.aborted) {
                         reject(err);
                         return;
                     }
                     resolve({ downloaded: receivedDataBytes, error: err });
                 }).on('finish', () => {
+                    clearChunkTimeout();
                     if (this.aborted) {
                         reject(Downloader.userCanceledError);
                         return;

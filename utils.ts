@@ -1,4 +1,4 @@
-import { StorageClass } from './adapter'
+import { StorageClass } from './adapter';
 
 export function parsePort(url: URL): number {
     const port: number = parseInt(url.port);
@@ -15,7 +15,7 @@ export function parsePort(url: URL): number {
     }
 }
 
-enum FileType {
+export enum FileType {
     Standard = 0,
     InfrequentAccess,
     Glacier,
@@ -24,17 +24,17 @@ enum FileType {
 export function convertStorageClassToFileType(storageClass?: StorageClass): FileType {
     switch (storageClass) {
         case 'Standard':
-            return FileType.Standard
+            return FileType.Standard;
         case 'InfrequentAccess':
-            return FileType.InfrequentAccess
+            return FileType.InfrequentAccess;
         case 'Glacier':
-            return FileType.Glacier
+            return FileType.Glacier;
         default:
-            return FileType.Standard
+            return FileType.Standard;
     }
 }
 
-enum KodoS3StorageClass {
+export enum KodoS3StorageClass {
     Standard = 'STANDARD',
     InfrequentAccess = 'LINE',
     Glacier = 'GLACIER',
@@ -43,12 +43,12 @@ enum KodoS3StorageClass {
 export function covertStorageClassToS3StorageClass(storageClass?: StorageClass): KodoS3StorageClass {
     switch (storageClass) {
         case 'Standard':
-            return KodoS3StorageClass.Standard
+            return KodoS3StorageClass.Standard;
         case 'InfrequentAccess':
-            return KodoS3StorageClass.InfrequentAccess
+            return KodoS3StorageClass.InfrequentAccess;
         case 'Glacier':
-            return KodoS3StorageClass.Glacier
+            return KodoS3StorageClass.Glacier;
         default:
-            return KodoS3StorageClass.Standard
+            return KodoS3StorageClass.Standard;
     }
 }

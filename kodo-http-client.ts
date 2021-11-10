@@ -11,7 +11,7 @@ import zlib from 'zlib';
 import { UplogBuffer, UplogEntry } from './uplog';
 import { HttpClient, RequestStats, URLRequestOptions } from './http-client';
 
-export type HttpProtocol = "http" | "https";
+export type HttpProtocol = 'http' | 'https';
 
 export interface RequestOptions {
     method?: HttpMethod;
@@ -58,28 +58,25 @@ export class KodoHttpClient {
         this.httpClient = new HttpClient(sharedOptions, this.uplogBuffer);
     }
 
-    call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
-        return new Promise((resolve, reject) => {
-            this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId, options.stats).then((urls) => {
-                this.callUrls(urls, {
-                    method: options.method,
-                    path: options.path,
-                    query: options.query,
-                    data: options.data,
-                    dataType: options.dataType,
-                    form: options.form,
-                    contentType: options.contentType,
-                    headers: options.headers,
-                    uploadProgress: options.uploadProgress,
-                    uploadThrottle: options.uploadThrottle,
-                    stats: options.stats,
-                }).then(resolve, reject);
-            }).catch(reject);
+    async call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
+        const urls = await this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId, options.stats);
+        return await this.callUrls(urls, {
+            method: options.method,
+            path: options.path,
+            query: options.query,
+            data: options.data,
+            dataType: options.dataType,
+            form: options.form,
+            contentType: options.contentType,
+            headers: options.headers,
+            uploadProgress: options.uploadProgress,
+            uploadThrottle: options.uploadThrottle,
+            stats: options.stats,
         });
     }
 
-    callUrls<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
-        return this.httpClient.call(urls, options);
+    async callUrls<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        return await this.httpClient.call(urls, options);
     }
 
     clearCache() {
@@ -87,110 +84,107 @@ export class KodoHttpClient {
         this.regionService.clearCache();
     }
 
-    private getServiceUrls(serviceName: ServiceName, bucketName?: string, s3RegionId?: string, stats?: RequestStats): Promise<Array<string>> {
-        return new Promise((resolve, reject) => {
-            let key: string;
-            if (s3RegionId) {
-                key = `${this.sharedOptions.ucUrl}/${s3RegionId}`;
-            } else {
-                key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
-            }
+    private async getServiceUrls(
+        serviceName: ServiceName,
+        bucketName?: string,
+        s3RegionId?: string,
+        stats?: RequestStats,
+    ): Promise<string[]> {
+        let key: string;
+        if (s3RegionId) {
+            key = `${this.sharedOptions.ucUrl}/${s3RegionId}`;
+        } else {
+            key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
+        }
+        if (this.regionsCache[key]) {
+            return this.getUrlsFromRegion(serviceName, this.regionsCache[key]);
+        }
+        const region: Region = await this.regionsCacheLock.acquire(key, async (): Promise<Region> => {
             if (this.regionsCache[key]) {
-                resolve(this.getUrlsFromRegion(serviceName, this.regionsCache[key]));
-                return;
+                return this.regionsCache[key];
             }
-            this.regionsCacheLock.acquire(key, (): Promise<Region> => {
-                if (this.regionsCache[key]) {
-                    return Promise.resolve(this.regionsCache[key]);
-                } else if (bucketName) {
-                    return Region.query({
-                        bucketName,
-                        accessKey: this.sharedOptions.accessKey,
-                        ucUrl: this.sharedOptions.ucUrl,
-                        timeout: this.sharedOptions.timeout,
-                        retry: this.sharedOptions.retry,
-                        retryDelay: this.sharedOptions.retryDelay,
-                        appName: this.sharedOptions.appName,
-                        appVersion: this.sharedOptions.appVersion,
-                        uplogBufferSize: this.sharedOptions.uplogBufferSize,
-                        requestCallback: this.sharedOptions.requestCallback,
-                        responseCallback: this.sharedOptions.responseCallback,
-                        stats: stats,
-                    });
-                } else {
-                    return new Promise((resolve, reject) => {
-                        this.regionService.getAllRegions({
-                            timeout: this.sharedOptions.timeout,
-                            retry: this.sharedOptions.retry,
-                            retryDelay: this.sharedOptions.retryDelay,
-                            stats: stats,
-                        }).then((regions) => {
-                            if (regions.length == 0) {
-                                reject(Error('regions is empty'));
-                                return;
-                            }
-                            if (s3RegionId) {
-                                const region = regions.find((region) => region.s3Id === s3RegionId);
-                                if (!region) {
-                                    reject(new Error(`Cannot find region of ${s3RegionId}`));
-                                    return;
-                                }
-                                resolve(region);
-                            } else {
-                                resolve(regions[0]);
-                            }
-                        }).catch(reject);
-                    });
+            if (bucketName) {
+                return await Region.query({
+                    bucketName,
+                    accessKey: this.sharedOptions.accessKey,
+                    ucUrl: this.sharedOptions.ucUrl,
+                    timeout: this.sharedOptions.timeout,
+                    retry: this.sharedOptions.retry,
+                    retryDelay: this.sharedOptions.retryDelay,
+                    appName: this.sharedOptions.appName,
+                    appVersion: this.sharedOptions.appVersion,
+                    uplogBufferSize: this.sharedOptions.uplogBufferSize,
+                    requestCallback: this.sharedOptions.requestCallback,
+                    responseCallback: this.sharedOptions.responseCallback,
+                    stats,
+                });
+            }
+            const regions = await this.regionService.getAllRegions({
+                timeout: this.sharedOptions.timeout,
+                retry: this.sharedOptions.retry,
+                retryDelay: this.sharedOptions.retryDelay,
+                stats,
+            });
+            if (regions.length == 0) {
+                throw new Error('regions is empty');
+            }
+            if (s3RegionId) {
+                const region = regions.find((region) => region.s3Id === s3RegionId);
+                if (!region) {
+                    throw new Error(`Cannot find region of ${s3RegionId}`);
                 }
-            }).then((region: Region) => {
-                this.regionsCache[key] = region;
-                resolve(this.getUrlsFromRegion(serviceName, region));
-            }).catch(reject);
+                return region;
+            } else {
+                return regions[0];
+            }
         });
+
+        this.regionsCache[key] = region;
+        return this.getUrlsFromRegion(serviceName, region);
     }
 
     log(entry: UplogEntry): Promise<void> {
         return this.uplogBuffer.log(entry);
     }
 
-    private sendUplog(logBuffer: Buffer): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const query = new URLSearchParams();
-            query.set("compressed", "gzip");
-            const token = makeUploadToken(
-                this.sharedOptions.accessKey,
-                this.sharedOptions.secretKey,
-                newUploadPolicy({
-                    bucket: "testbucket",
-                }));
-            let headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
-            if (KodoHttpClient.logClientId) {
-                headers['X-Log-Client-Id'] = KodoHttpClient.logClientId;
-            }
+    private async sendUplog(logBuffer: Buffer): Promise<void> {
+        const query = new URLSearchParams();
+        query.set('compressed', 'gzip');
+        const token = makeUploadToken(
+            this.sharedOptions.accessKey,
+            this.sharedOptions.secretKey,
+            newUploadPolicy({
+                bucket: 'testbucket',
+            }));
+        const headers: { [headerName: string]: string; } = { 'authorization': `UpToken ${token}` };
+        if (KodoHttpClient.logClientId) {
+            headers['X-Log-Client-Id'] = KodoHttpClient.logClientId;
+        }
 
+        const compressedLog = await new Promise<Buffer>((resolve, reject) => {
             zlib.gzip(logBuffer, { level: zlib.constants.Z_BEST_COMPRESSION }, (err, compressedLog) => {
                 if (err) {
                     reject(err);
                     return;
                 }
-                this.call({
-                    method: 'POST',
-                    serviceName: ServiceName.Uplog,
-                    path: 'log/4',
-                    query: query,
-                    headers: headers,
-                    data: compressedLog,
-                }).then((response) => {
-                    if (!KodoHttpClient.logClientId && response.headers['X-Log-Client-Id']) {
-                        KodoHttpClient.logClientId = response.headers['X-Log-Client-Id'].toString();
-                    }
-                    resolve();
-                }).catch(reject);
+                resolve(compressedLog);
             });
         });
+
+        const response = await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Uplog,
+            path: 'log/4',
+            query,
+            headers,
+            data: compressedLog,
+        });
+        if (!KodoHttpClient.logClientId && response.headers['X-Log-Client-Id']) {
+            KodoHttpClient.logClientId = response.headers['X-Log-Client-Id'].toString();
+        }
     }
 
-    private getUrlsFromRegion(serviceName: ServiceName, region: Region): Array<string> {
+    private getUrlsFromRegion(serviceName: ServiceName, region: Region): string[] {
         switch (serviceName) {
             case ServiceName.Up:
                 return [...region.upUrls];

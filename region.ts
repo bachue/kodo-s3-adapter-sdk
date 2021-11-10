@@ -5,8 +5,8 @@ import { RequestInfo, ResponseInfo } from './adapter';
 import { UplogBuffer } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
 
-export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo/region`;
-export const DEFAULT_UC_URL: string = 'https://uc.qbox.me';
+export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo/region`;
+export const DEFAULT_UC_URL = 'https://uc.qbox.me';
 
 export interface RegionRequestOptions {
     timeout?: number | number[];
@@ -33,19 +33,19 @@ export interface QueryOptions extends RequestOptions {
 }
 
 export class Region {
-    upUrls: Array<string> = [];
-    ucUrls: Array<string> = [];
-    rsUrls: Array<string> = [];
-    rsfUrls: Array<string> = [];
-    apiUrls: Array<string> = [];
-    s3Urls: Array<string> = [];
+    upUrls: string[] = [];
+    ucUrls: string[] = [];
+    rsUrls: string[] = [];
+    rsfUrls: string[] = [];
+    apiUrls: string[] = [];
+    s3Urls: string[] = [];
     constructor(readonly id: string,
         readonly s3Id: string,
         readonly label?: string,
         readonly translatedLabels?: { [lang: string]: string; }) {
     }
 
-    static getAll(options: GetAllOptions): Promise<Array<Region>> {
+    static getAll(options: GetAllOptions): Promise<Region[]> {
         const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/regions`);
         const uplogBuffer = new UplogBuffer({
@@ -77,7 +77,7 @@ export class Region {
                 stats: options.stats,
             }).then((response) => {
                 response.data.regions ??= [];
-                const regions: Array<Region> = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
+                const regions: Region[] = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
                 resolve(regions);
             }, reject);
         });
@@ -119,7 +119,7 @@ export class Region {
                     const error = new Error('Invalid uc query v4 body');
                     reject(error);
                     return;
-                };
+                }
                 const region: Region = Region.fromResponseBody(ucUrl, r);
                 resolve(region);
             }, reject);
@@ -129,8 +129,8 @@ export class Region {
     private static fromResponseBody(ucUrl: string, r: any): Region {
         const translatedDescriptions: { [lang: string]: string; } = {};
         for (const fieldName in r) {
-            if (fieldName.startsWith("description_")) {
-                const langName = fieldName.substring("description_".length);
+            if (fieldName.startsWith('description_')) {
+                const langName = fieldName.substring('description_'.length);
                 translatedDescriptions[langName] = r[fieldName];
             }
         }

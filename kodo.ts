@@ -11,23 +11,41 @@ import { URL, URLSearchParams } from 'url';
 import { Readable } from 'stream';
 import { HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
-import { base64ToUrlSafe, newUploadPolicy, makeUploadToken, signPrivateURL } from './kodo-auth';
+import { base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL } from './kodo-auth';
 import {
-    Adapter, AdapterOption, Bucket, Domain, Object, SetObjectHeader, ObjectGetResult, ObjectHeader, ObjectInfo,
-    TransferObject, PartialObjectError, BatchCallback, FrozenInfo, ListObjectsOption, ListedObjects, PutObjectOption,
-    InitPartsOutput, UploadPartOutput, StorageClass, Part, GetObjectStreamOption,
+    Adapter,
+    AdapterOption,
+    BatchCallback,
+    Bucket,
+    Domain,
+    FrozenInfo,
+    GetObjectStreamOption,
+    InitPartsOutput,
+    ListedObjects,
+    ListObjectsOption,
+    ObjectGetResult,
+    ObjectHeader,
+    ObjectInfo,
+    Part,
+    PartialObjectError,
+    PutObjectOption,
+    SetObjectHeader,
+    StorageClass,
+    StorageObject,
+    TransferObject,
+    UploadPartOutput,
 } from './adapter';
-import { KodoHttpClient, ServiceName, RequestOptions } from './kodo-http-client';
-import { URLRequestOptions, RequestStats } from './http-client';
-import { UplogEntry, SdkApiUplogEntry, LogType } from './uplog';
-import { convertStorageClassToFileType } from './utils'
+import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
+import { RequestStats, URLRequestOptions } from './http-client';
+import { LogType, SdkApiUplogEntry, UplogEntry } from './uplog';
+import { FileType, convertStorageClassToFileType } from './utils';
 
-export const USER_AGENT: string = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
+export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
 export class Kodo implements Adapter {
     protected readonly client: KodoHttpClient;
     protected readonly regionService: RegionService;
-    private readonly bucketDomainsCache: { [bucketName: string]: Array<Domain>; } = {};
+    private readonly bucketDomainsCache: { [bucketName: string]: Domain[]; } = {};
     private readonly bucketDomainsCacheLock = new AsyncLock();
 
     constructor(protected adapterOption: AdapterOption) {
@@ -44,7 +62,7 @@ export class Kodo implements Adapter {
             appName: adapterOption.appName,
             appVersion: adapterOption.appVersion,
             uplogBufferSize: adapterOption.uplogBufferSize,
-            userAgent: userAgent,
+            userAgent,
             timeout: [30000, 300000],
             retry: 10,
             retryDelay: 500,
@@ -54,437 +72,439 @@ export class Kodo implements Adapter {
         this.regionService = new RegionService(adapterOption);
     }
 
-    enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
+    async enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
         const scope = new KodoScope(sdkApiName, this.adapterOption);
-        return new Promise((resolve, reject) => {
-            f(scope, scope.getRegionRequestOptions()).then((data) => {
-                scope.done(true).finally(() => { resolve(data); });
-            }).catch((err) => {
-                scope.done(false).finally(() => { reject(err); });
-            });
+        try {
+            const data = await f(scope, scope.getRegionRequestOptions());
+            await scope.done(true);
+            return data;
+        } catch (err) {
+            await scope.done(false);
+            throw err;
+        }
+    }
+
+    async createBucket(s3RegionId: string, bucket: string): Promise<void> {
+        const kodoRegionId = await this.regionService.fromS3IdToKodoRegionId(s3RegionId, this.getRegionRequestOptions());
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Uc,
+            path: `mkbucketv3/${bucket}/region/${kodoRegionId}`,
         });
     }
 
-    createBucket(s3RegionId: string, bucket: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.regionService.fromS3IdToKodoRegionId(s3RegionId, this.getRegionRequestOptions()).then((kodoRegionId) => {
-                this.call({
-                    method: 'POST',
-                    serviceName: ServiceName.Uc,
-                    path: `mkbucketv3/${bucket}/region/${kodoRegionId}`,
-                }).then(() => {
-                    resolve();
-                }).catch(reject);
-            }).catch(reject);
+    async deleteBucket(_region: string, bucket: string): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Uc,
+            bucketName: bucket,
+            path: `drop/${bucket}`,
         });
     }
 
-    deleteBucket(_region: string, bucket: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Uc,
-                bucketName: bucket,
-                path: `drop/${bucket}`,
-            }).then(() => {
-                resolve();
-            }).catch(reject);
+    async getBucketLocation(bucket: string): Promise<string> {
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Uc,
+            bucketName: bucket,
+            path: `bucket/${bucket}`,
+            dataType: 'json',
         });
+        return await this.regionService.fromKodoRegionIdToS3Id(
+            response.data.region,
+            this.getRegionRequestOptions(),
+        );
     }
 
-    getBucketLocation(bucket: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'GET',
-                serviceName: ServiceName.Uc,
-                bucketName: bucket,
-                path: `bucket/${bucket}`,
-                dataType: 'json',
-            }).then((response) => {
-                const kodoRegionId = response.data.region;
-                this.regionService.fromKodoRegionIdToS3Id(kodoRegionId, this.getRegionRequestOptions())
-                    .then(resolve).catch(reject);
-            }).catch(reject);
+    async listBuckets(): Promise<Bucket[]> {
+        const bucketsQuery = new URLSearchParams();
+        bucketsQuery.set('shared', 'rd');
+
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Uc,
+            path: 'v2/buckets',
+            dataType: 'json',
+            query: bucketsQuery,
         });
-    }
-
-    listBuckets(): Promise<Array<Bucket>> {
-        return new Promise((resolve, reject) => {
-            const bucketsQuery = new URLSearchParams();
-            bucketsQuery.set('shared', 'rd');
-
-            this.call({
-                method: 'GET',
-                serviceName: ServiceName.Uc,
-                path: 'v2/buckets',
-                dataType: 'json',
-                query: bucketsQuery,
-            }).then((response) => {
-                if (!response.data) {
-                    resolve([]);
-                    return;
-                }
-                const regionsPromises: Array<Promise<string | undefined>> = response.data.map((info: any) => {
-                    return new Promise((resolve) => {
-                        this.regionService.fromKodoRegionIdToS3Id(info.region, this.getRegionRequestOptions())
-                            .then(resolve).catch(() => { resolve(undefined); });
-                    });
-                });
-                Promise.all(regionsPromises).then((regionsInfo: Array<string | undefined>) => {
-                    const bucketInfos: Array<Bucket> = response.data.map((info: any, index: number) => {
-                        let grantedPermission: string | undefined = undefined;
-                        switch (info.perm) {
-                            case 1:
-                                grantedPermission = 'readonly';
-                                break;
-                            case 2:
-                                grantedPermission = 'readwrite';
-                                break;
-                        }
-                        return {
-                            id: info.id, name: info.tbl,
-                            createDate: new Date(info.ctime * 1000),
-                            regionId: regionsInfo[index], grantedPermission: grantedPermission,
-                        };
-                    });
-                    resolve(bucketInfos);
-                }).catch(reject);
-            }).catch(reject);
-        });
-    }
-
-    listDomains(s3RegionId: string, bucket: string): Promise<Array<Domain>> {
-        return new Promise((resolve, reject) => {
-            const domainsQuery = new URLSearchParams();
-            domainsQuery.set('sourceTypes', 'qiniuBucket');
-            domainsQuery.set('sourceQiniuBucket', bucket);
-            domainsQuery.set('operatingState', 'success');
-            domainsQuery.set('limit', '50');
-
-            const getBucketInfoQuery = new URLSearchParams();
-            getBucketInfoQuery.set('bucket', bucket);
-
-            const bucketDefaultDomainQuery = new URLSearchParams();
-            bucketDefaultDomainQuery.set('bucket', bucket);
-
-            const promises = [
-                this.call({
-                    method: 'GET',
-                    serviceName: ServiceName.Qcdn,
-                    path: 'domain',
-                    query: domainsQuery,
-                    dataType: 'json',
-                    s3RegionId: s3RegionId,
-                }),
-                this.call({
-                    method: 'POST',
-                    serviceName: ServiceName.Uc,
-                    path: 'v2/bucketInfo',
-                    query: getBucketInfoQuery,
-                    dataType: 'json',
-                    s3RegionId: s3RegionId,
-                }),
-                this.call({
-                    method: 'GET',
-                    serviceName: ServiceName.Portal,
-                    path: 'api/kodov2/domain/default/get',
-                    query: bucketDefaultDomainQuery,
-                    dataType: 'json',
-                    s3RegionId: s3RegionId,
-                }),
-            ];
-
-            Promise.all(promises).then(([domainResponse, bucketResponse, defaultDomainQuery]) => {
-                if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
-                    const result = defaultDomainQuery.data;
-                    const domains: Array<Domain> = [];
-                    if (result.domain && result.protocol) {
-                        domains.push({
-                            name: result.domain, protocol: result.protocol,
-                            type: 'normal', private: bucketResponse.data.private != 0,
-                        });
-                    }
-                    resolve(domains);
-                } else {
-                    const domains: Array<Domain> = domainResponse.data.domains.filter((domain: any) => {
-                        switch (domain.type) {
-                            case 'normal':
-                            case 'pan':
-                            case 'test':
-                                return true;
-                            default:
-                                return false;
-                        }
-                    }).map((domain: any) => {
-                        return {
-                            name: domain.name, protocol: domain.protocol, type: domain.type,
-                            private: bucketResponse.data.private != 0,
-                        };
-                    });
-                    resolve(domains);
-                }
-            }).catch(reject);
-        });
-    }
-
-    private _listDomains(s3RegionId: string, bucket: string): Promise<Array<Domain>> {
-        return new Promise((resolve, reject) => {
-            if (this.bucketDomainsCache[bucket]) {
-                resolve(this.bucketDomainsCache[bucket]);
-                return;
+        if (!response.data) {
+            return [];
+        }
+        const regionsPromises: Promise<string | undefined>[] = response.data.map((info: any) => (
+            this.regionService
+                .fromKodoRegionIdToS3Id(
+                    info.region,
+                    this.getRegionRequestOptions(),
+                )
+                .catch(() => Promise.resolve())
+        ));
+        const regionsInfo = await Promise.all(regionsPromises);
+        return response.data.map((info: any, index: number) => {
+            let grantedPermission: string | undefined;
+            switch (info.perm) {
+                case 1:
+                    grantedPermission = 'readonly';
+                    break;
+                case 2:
+                    grantedPermission = 'readwrite';
+                    break;
             }
-
-            this.bucketDomainsCacheLock.acquire(bucket, (): Promise<Array<Domain>> => {
-                if (this.bucketDomainsCache[bucket]) {
-                    return Promise.resolve(this.bucketDomainsCache[bucket]);
-                }
-                return this.listDomains(s3RegionId, bucket);
-            }).then((domains: Array<Domain>) => {
-                this.bucketDomainsCache[bucket] = domains;
-                resolve(domains);
-            }).catch(reject);
-        });
-    }
-
-    listBucketIdNames(): Promise<Array<BucketIdName>> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'GET',
-                serviceName: ServiceName.Uc,
-                path: 'v2/buckets',
-                dataType: 'json',
-            }).then((response) => {
-                const bucketInfos = response.data.map((info: any) => {
-                    return { id: info.id, name: info.tbl };
-                });
-                resolve(bucketInfos);
-            }).catch(reject);
-        });
-    }
-
-    isExists(s3RegionId: string, object: Object): Promise<boolean> {
-        return new Promise((resolve, reject) => {
-            this.getObjectInfo(s3RegionId, object).then(() => {
-                resolve(true);
-            }).catch((error: any) => {
-                if (error.message === 'no such file or directory') {
-                    resolve(false);
-                } else {
-                    reject(error);
-                }
-            });
-        });
-    }
-
-    deleteObject(s3RegionId: string, object: Object): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `delete/${encodeObject(object)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
-
-    putObject(s3RegionId: string, object: Object, data: Buffer, originalFileName: string,
-        header?: SetObjectHeader, option?: PutObjectOption): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const token = makeUploadToken(
-                this.adapterOption.accessKey,
-                this.adapterOption.secretKey,
-                newUploadPolicy({
-                    bucket: object.bucket,
-                    key: object.key,
-                    storageClassName: object?.storageClassName,
-                }),
-            );
-            const form = new FormData();
-            form.append('key', object.key);
-            form.append('token', token);
-            if (header?.metadata) {
-                for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
-                    form.append(`x-qn-meta-${metaKey}`, metaValue);
-                }
-            }
-            form.append('crc32', CRC32.unsigned(data));
-
-            const fileOption: FormData.AppendOptions = {
-                filename: originalFileName,
+            return {
+                id: info.id, name: info.tbl,
+                createDate: new Date(info.ctime * 1000),
+                regionId: regionsInfo[index],
+                grantedPermission,
             };
-            if (header?.contentType) {
-                fileOption.contentType = header!.contentType;
-            }
-            form.append('file', data, fileOption);
+        });
+    }
+
+    async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+        const domainsQuery = new URLSearchParams();
+        domainsQuery.set('sourceTypes', 'qiniuBucket');
+        domainsQuery.set('sourceQiniuBucket', bucket);
+        domainsQuery.set('operatingState', 'success');
+        domainsQuery.set('limit', '50');
+
+        const getBucketInfoQuery = new URLSearchParams();
+        getBucketInfoQuery.set('bucket', bucket);
+
+        const bucketDefaultDomainQuery = new URLSearchParams();
+        bucketDefaultDomainQuery.set('bucket', bucket);
+
+        const promises = [
+            this.call({
+                method: 'GET',
+                serviceName: ServiceName.Qcdn,
+                path: 'domain',
+                query: domainsQuery,
+                dataType: 'json',
+                s3RegionId,
+            }),
             this.call({
                 method: 'POST',
-                serviceName: ServiceName.Up,
+                serviceName: ServiceName.Uc,
+                path: 'v2/bucketInfo',
+                query: getBucketInfoQuery,
                 dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: form.getHeaders()['content-type'],
-                form: form,
-                uploadProgress: option?.progressCallback,
-                uploadThrottle: option?.throttle,
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
+                s3RegionId,
+            }),
+            this.call({
+                method: 'GET',
+                serviceName: ServiceName.Portal,
+                path: 'api/kodov2/domain/default/get',
+                query: bucketDefaultDomainQuery,
+                dataType: 'json',
+                s3RegionId,
+            }),
+        ];
 
-    getObject(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectGetResult> {
-        return new Promise((resolve, reject) => {
-            this.getObjectURL(s3RegionId, object, domain).then((url) => {
-                this.callUrl([url.toString()], {
-                    fullUrl: true,
-                    appendAuthorization: false,
-                    method: 'GET',
-                }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve({ data: response.data, header: getObjectHeader(response) });
-                }).catch(reject);
-            }).catch(reject);
-        });
-    }
+        const [
+            domainResponse,
+            bucketResponse,
+            defaultDomainQuery,
+        ] = await Promise.all(promises);
 
-    getObjectStream(s3RegionId: string, object: Object, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable> {
-        const headers: { [headerName: string]: string; } = {};
-        if (option?.rangeStart || option?.rangeEnd) {
-            headers['Range'] = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
+        if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
+            const result = defaultDomainQuery.data;
+            const domains: Domain[] = [];
+            if (result.domain && result.protocol) {
+                domains.push({
+                    name: result.domain, protocol: result.protocol,
+                    type: 'normal', private: bucketResponse.data.private != 0,
+                });
+            }
+            return domains;
         }
 
-        return new Promise((resolve, reject) => {
-            this.getObjectURL(s3RegionId, object, domain).then((url) => {
-                this.callUrl([url.toString()], {
-                    fullUrl: true,
-                    appendAuthorization: false,
-                    method: 'GET',
-                    headers: headers,
-                    streaming: true,
-                }).then((response: HttpClientResponse<any>) => {
-                    resolve(response.res);
-                }).catch(reject);
-            }).catch(reject);
+        return domainResponse.data.domains
+            .filter((domain: any) => {
+                switch (domain.type) {
+                    case 'normal':
+                    case 'pan':
+                    case 'test':
+                        return true;
+                    default:
+                        return false;
+                }
+            })
+            .map((domain: any) => ({
+                name: domain.name,
+                protocol: domain.protocol,
+                type: domain.type,
+                private: bucketResponse.data.private != 0,
+            }));
+    }
+
+    private async _listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+        if (this.bucketDomainsCache[bucket]) {
+            return this.bucketDomainsCache[bucket];
+        }
+
+        const domains = await this.bucketDomainsCacheLock.acquire(bucket, async (): Promise<Domain[]> => {
+            if (this.bucketDomainsCache[bucket]) {
+                return this.bucketDomainsCache[bucket];
+            }
+            return await this.listDomains(s3RegionId, bucket);
+        });
+        this.bucketDomainsCache[bucket] = domains;
+        return domains;
+    }
+
+    async listBucketIdNames(): Promise<BucketIdName[]> {
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Uc,
+            path: 'v2/buckets',
+            dataType: 'json',
+        });
+        return response.data.map((info: any) => ({
+            id: info.id,
+            name: info.tbl,
+        }));
+    }
+
+    async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {
+        try {
+            await this.getObjectInfo(s3RegionId, object);
+            return true;
+        } catch (err) {
+            if (err.message === 'no such file or directory') {
+                return false;
+            }
+            throw err;
+        }
+    }
+
+    async deleteObject(s3RegionId: string, object: StorageObject): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `delete/${encodeObject(object)}`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
         });
     }
 
-    getObjectURL(s3RegionId: string, object: Object, domain?: Domain, deadline?: Date): Promise<URL> {
-        return new Promise((resolve, reject) => {
-            const domainPromise: Promise<Domain> = new Promise((resolve, reject) => {
-                if (domain) {
-                    resolve(domain);
-                    return;
-                }
-                this._listDomains(s3RegionId, object.bucket).then((domains) => {
-                    if (domains.length === 0) {
-                        reject(new Error('no domain found'));
-                        return;
-                    }
-                    const domainTypeScope = (domain: Domain): number => {
-                        switch (domain.type) {
-                            case 'normal': return 1;
-                            case 'pan': return 2;
-                            case 'test': return 3;
-                        }
-                    };
-                    domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
-                    resolve(domains[0]);
-                }).catch(reject);
-            });
+    async putObject(
+        s3RegionId: string,
+        object: StorageObject,
+        data: Buffer,
+        originalFileName: string,
+        header?: SetObjectHeader,
+        option?: PutObjectOption,
+    ): Promise<void> {
+        const token = makeUploadToken(
+            this.adapterOption.accessKey,
+            this.adapterOption.secretKey,
+            newUploadPolicy({
+                bucket: object.bucket,
+                key: object.key,
+                storageClassName: object?.storageClassName,
+            }),
+        );
 
-            domainPromise.then((domain: Domain) => {
-                let url = new URL(`${domain.protocol}://${domain.name}`);
-                url.pathname = object.key;
-                if (domain.private) {
-                    url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
-                }
-                resolve(url);
-            }).catch(reject);
+        const form = new FormData();
+        form.append('key', object.key);
+        form.append('token', token);
+        if (header?.metadata) {
+            for (const [metaKey, metaValue] of Object.entries(header.metadata)) {
+                form.append(`x-qn-meta-${metaKey}`, metaValue);
+            }
+        }
+        form.append('crc32', CRC32.unsigned(data));
+
+        const fileOption: FormData.AppendOptions = {
+            filename: originalFileName,
+        };
+        fileOption.contentType = header?.contentType;
+        form.append('file', data, fileOption);
+
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Up,
+            dataType: 'json',
+            s3RegionId,
+            contentType: form.getHeaders()['content-type'],
+            form,
+            uploadProgress: option?.progressCallback,
+            uploadThrottle: option?.throttle,
         });
     }
 
-    getObjectInfo(s3RegionId: string, object: Object): Promise<ObjectInfo> {
-        return new Promise((resolve, reject) => {
-            this.call({
+    async getObject(
+        s3RegionId: string,
+        object: StorageObject,
+        domain?: Domain,
+    ): Promise<ObjectGetResult> {
+        const url = await this.getObjectURL(s3RegionId, object, domain);
+        const response: HttpClientResponse<Buffer> = await this.callUrl(
+            [
+                url.toString(),
+            ],
+            {
+                fullUrl: true,
+                appendAuthorization: false,
                 method: 'GET',
-                serviceName: ServiceName.Rs,
-                path: `stat/${encodeObject(object)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then((response) => {
-                resolve({
-                    bucket: object.bucket, key: response.data.key, size: response.data.fsize,
-                    lastModified: new Date(response.data.putTime / 10000), storageClass: toStorageClass(response.data.type),
-                });
-            }).catch(reject);
+            },
+        );
+        return {
+            data: response.data,
+            header: getObjectHeader(response),
+        };
+    }
+
+    async getObjectStream(
+        s3RegionId: string,
+        object: StorageObject,
+        domain?: Domain,
+        option?: GetObjectStreamOption,
+    ): Promise<Readable> {
+        const headers: { [headerName: string]: string; } = {};
+        if (option?.rangeStart || option?.rangeEnd) {
+            headers.Range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
+        }
+
+        const url = await this.getObjectURL(s3RegionId, object, domain);
+        const response = await this.callUrl(
+            [
+                url.toString(),
+            ],
+            {
+                fullUrl: true,
+                appendAuthorization: false,
+                method: 'GET',
+                headers,
+                streaming: true,
+            },
+        );
+
+        return response.res;
+    }
+
+    async getObjectURL(
+        s3RegionId: string,
+        object: StorageObject,
+        domain?: Domain,
+        deadline?: Date,
+    ): Promise<URL> {
+        if (!domain) {
+            let domains = await this._listDomains(s3RegionId, object.bucket);
+            if (domains.length === 0) {
+                throw new Error('no domain found');
+            }
+            const domainTypeScope = (domain: Domain): number => {
+                switch (domain.type) {
+                    case 'normal':
+                        return 1;
+                    case 'pan':
+                        return 2;
+                    case 'test':
+                        return 3;
+                }
+            };
+            domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
+
+            domain = domains[0];
+        }
+
+        let url = new URL(`${domain.protocol}://${domain.name}`);
+        url.pathname = object.key;
+        if (domain.private) {
+            url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
+        }
+        return url;
+    }
+
+    async getObjectInfo(s3RegionId: string, object: StorageObject): Promise<ObjectInfo> {
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Rs,
+            path: `stat/${encodeObject(object)}`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
+        });
+        return {
+            bucket: object.bucket,
+            key: response.data.key,
+            size: response.data.fsize,
+            lastModified: new Date(response.data.putTime / 10000),
+            storageClass: toStorageClass(response.data.type),
+        };
+    }
+
+    async getObjectHeader(s3RegionId: string, object: StorageObject, domain?: Domain): Promise<ObjectHeader> {
+        const url = await this.getObjectURL(s3RegionId, object, domain);
+        const response = await this.callUrl<Buffer>(
+            [
+                url.toString(),
+            ],
+            {
+                fullUrl: true,
+                appendAuthorization: false,
+                method: 'HEAD',
+            },
+        );
+        return getObjectHeader(response);
+    }
+
+    async moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
         });
     }
 
-    getObjectHeader(s3RegionId: string, object: Object, domain?: Domain): Promise<ObjectHeader> {
-        return new Promise((resolve, reject) => {
-            this.getObjectURL(s3RegionId, object, domain).then((url) => {
-                this.callUrl([url.toString()], {
-                    fullUrl: true,
-                    appendAuthorization: false,
-                    method: 'HEAD',
-                }).then((response: HttpClientResponse<Buffer>) => {
-                    resolve(getObjectHeader(response));
-                }).catch(reject);
-            }).catch(reject);
+    async copyObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
         });
     }
 
-    moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `move/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
-
-    copyObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `copy/${encodeObject(transferObject.from)}/${encodeObject(transferObject.to)}/force/true`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
-
-    moveObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    moveObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(transferObjects.map((to) => new MoveObjectOp(to)), 100, s3RegionId, callback);
     }
 
-    copyObjects(s3RegionId: string, transferObjects: Array<TransferObject>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    copyObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(transferObjects.map((to) => new CopyObjectOp(to)), 100, s3RegionId, callback);
     }
 
-    deleteObjects(s3RegionId: string, bucket: string, keys: Array<string>, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    deleteObjects(s3RegionId: string, bucket: string, keys: string[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(keys.map((key) => new DeleteObjectOp({ bucket, key })), 100, s3RegionId, callback);
     }
 
-    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: Array<string>, storageClass: StorageClass, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
-        return this.batchOps(keys.map((key) => new SetObjectStorageClassOp({ bucket, key }, storageClass)), 100, s3RegionId, callback);
+    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
+        return this.batchOps(keys.map((key) => new SetObjectStorageClassOp({
+            bucket,
+            key,
+        }, storageClass)), 100, s3RegionId, callback);
     }
 
-    restoreObjects(s3RegionId: string, bucket: string, keys: Array<string>, days: number, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(keys.map((key) => new RestoreObjectsOp({ bucket, key }, days)), 100, s3RegionId, callback);
     }
 
-    private batchOps(ops: Array<ObjectOp>, batchCount: number, s3RegionId: string, callback?: BatchCallback): Promise<Array<PartialObjectError>> {
+    private async batchOps(
+        ops: ObjectOp[],
+        batchCount: number,
+        s3RegionId: string,
+        callback?: BatchCallback
+    ): Promise<PartialObjectError[]> {
         const semaphore = new Semaphore(20);
-        const opsBatches: Array<Array<ObjectOp>> = [];
+        const opsBatches: ObjectOp[][] = [];
 
         while (ops.length >= batchCount) {
-            const batch: Array<ObjectOp> = ops.splice(0, batchCount);
+            const batch: ObjectOp[] = ops.splice(0, batchCount);
             opsBatches.push(batch);
         }
         if (ops.length > 0) {
@@ -492,137 +512,135 @@ export class Kodo implements Adapter {
         }
 
         let counter = 0;
-        const promises: Array<Promise<Array<PartialObjectError>>> = opsBatches.map((batch) => {
+        const promises: Promise<PartialObjectError[]>[] = opsBatches.map(async (batch) => {
             const firstIndexInCurrentBatch = counter;
             counter += batch.length;
-            return new Promise((resolve, reject) => {
-                const params = new URLSearchParams();
-                for (const op of batch) {
-                    params.append('op', op.getOp());
-                }
-                semaphore.acquire().then((release) => {
-                    this.call({
-                        method: 'POST',
-                        serviceName: ServiceName.Rs,
-                        path: 'batch',
-                        dataType: 'json',
-                        s3RegionId: s3RegionId,
-                        contentType: 'application/x-www-form-urlencoded',
-                        data: params.toString(),
-                    }).then((response) => {
-                        let aborted = false;
-                        const results: Array<PartialObjectError> = response.data.map((item: any, index: number) => {
-                            const currentIndex = firstIndexInCurrentBatch + index;
-                            const result: PartialObjectError = batch[index].getObject();
-                            if (item?.data?.error) {
-                                const error = new Error(item?.data?.error);
-                                if (callback && callback(currentIndex, error) === false) {
-                                    aborted = true;
-                                }
-                                result.error = error;
-                            } else if (callback && callback(currentIndex) === false) {
-                                aborted = true;
-                            }
-                            return result;
-                        });
-                        if (aborted) {
-                            reject(new Error('aborted'));
-                        } else {
-                            resolve(results);
-                        }
-                    }).catch((error) => {
-                        let aborted = false;
-                        const results: Array<PartialObjectError> = batch.map((op, index) => {
-                            const currentIndex = firstIndexInCurrentBatch + index;
-                            if (callback && callback(currentIndex, error) === false) {
-                                aborted = true;
-                            }
-                            return Object.assign({}, op.getObject());
-                        });
-                        if (aborted) {
-                            reject(new Error('aborted'));
-                        } else {
-                            resolve(results);
-                        }
-                    }).finally(() => {
-                        release();
-                    });
+
+            const params = new URLSearchParams();
+            for (const op of batch) {
+                params.append('op', op.getOp());
+            }
+
+            const release = await semaphore.acquire();
+            try {
+                const response = await this.call({
+                    method: 'POST',
+                    serviceName: ServiceName.Rs,
+                    path: 'batch',
+                    dataType: 'json',
+                    s3RegionId,
+                    contentType: 'application/x-www-form-urlencoded',
+                    data: params.toString(),
                 });
-            });
-        });
-
-        return new Promise((resolve, reject) => {
-            Promise.all(promises).then((batches: Array<Array<PartialObjectError>>) => {
-                let results: Array<PartialObjectError> = [];
-                for (const batch of batches) {
-                    results = results.concat(batch);
-                }
-                resolve(results);
-            }).catch(reject);
-        });
-    }
-
-    getFrozenInfo(s3RegionId: string, object: Object): Promise<FrozenInfo> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `stat/${encodeObject(object)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then((response) => {
-                if (response.data.type === 2) {
-                    if (response.data.restoreStatus) {
-                        if (response.data.restoreStatus === 1) {
-                            resolve({ status: 'Unfreezing' });
-                        } else {
-                            resolve({ status: 'Unfrozen' });
-                        }
-                    } else {
-                        resolve({ status: 'Frozen' });
+                let aborted = false;
+                const results: PartialObjectError[] = response.data.map((item: any, index: number) => {
+                    const currentIndex = firstIndexInCurrentBatch + index;
+                    const result: PartialObjectError = batch[index].getObject();
+                    let error: Error | undefined;
+                    if (item?.data?.error) {
+                        error = new Error(item?.data?.error);
+                        result.error = error;
                     }
-                } else {
-                    resolve({ status: 'Normal' });
+                    if (callback && callback(currentIndex, error) === false) {
+                        aborted = true;
+                    }
+                    return result;
+                });
+                if (aborted) {
+                    throw new Error('aborted');
                 }
-            }).catch(reject);
+                return results;
+            } catch (error) {
+                let aborted = false;
+                const results: PartialObjectError[] = batch.map((op, index) => {
+                    const currentIndex = firstIndexInCurrentBatch + index;
+                    if (callback && callback(currentIndex, error) === false) {
+                        aborted = true;
+                    }
+                    return Object.assign({}, op.getObject());
+                });
+                if (aborted) {
+                    throw new Error('aborted');
+                }
+                return results;
+            } finally {
+                release();
+            }
+        });
+
+        const batches = await Promise.all<PartialObjectError[]>(promises);
+        let results: PartialObjectError[] = [];
+        for (const batch of batches) {
+            results = results.concat(batch);
+        }
+        return results;
+    }
+
+    async getFrozenInfo(s3RegionId: string, object: StorageObject): Promise<FrozenInfo> {
+        const response = await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `stat/${encodeObject(object)}`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
+        });
+
+        // lihs: convert to enum
+        if (response.data.type !== 2) {
+            return {
+                status: 'Normal',
+            };
+        }
+        if (!response.data.restoreStatus) {
+            return {
+                status: 'Frozen',
+            };
+        }
+        if (response.data.restoreStatus === 1) {
+            return {
+                status: 'Unfreezing',
+            };
+        }
+        return {
+            status: 'Unfrozen',
+        };
+    }
+
+    async restoreObject(s3RegionId: string, object: StorageObject, days: number): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `restoreAr/${encodeObject(object)}/freezeAfterDays/${days}`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
         });
     }
 
-    restoreObject(s3RegionId: string, object: Object, days: number): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `restoreAr/${encodeObject(object)}/freezeAfterDays/${days}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
-        });
-    }
-
-    setObjectStorageClass(s3RegionId: string, object: Object, storageClass: StorageClass): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Rs,
-                path: `chtype/${encodeObject(object)}/type/${convertStorageClassToFileType(storageClass)}`,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-            }).then(() => { resolve(); }).catch(reject);
+    async setObjectStorageClass(s3RegionId: string, object: StorageObject, storageClass: StorageClass): Promise<void> {
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Rs,
+            path: `chtype/${encodeObject(object)}/type/${convertStorageClassToFileType(storageClass)}`,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
         });
     }
 
     listObjects(s3RegionId: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
-        return new Promise((resolve, reject) => {
-            const results: ListedObjects = { objects: [] };
-            this._listObjects(s3RegionId, bucket, prefix, resolve, reject, results, option);
-        });
+        const results: ListedObjects = { objects: [] };
+        return this._listObjects(s3RegionId, bucket, prefix, results, option);
     }
 
-    private _listObjects(s3RegionId: string, bucket: string, prefix: string, resolve: any, reject: any, results: ListedObjects, option?: ListObjectsOption): void {
+    private async _listObjects(
+        s3RegionId: string,
+        bucket: string,
+        prefix: string,
+        results: ListedObjects,
+        option?: ListObjectsOption,
+    ): Promise<ListedObjects> {
         const query = new URLSearchParams();
         query.set('bucket', bucket);
         query.set('prefix', prefix);
@@ -639,159 +657,169 @@ export class Kodo implements Adapter {
             delimiter: option?.delimiter,
         };
 
-        this.call({
+        const response = await this.call({
             method: 'POST',
             serviceName: ServiceName.Rsf,
             path: 'v2/list',
-            s3RegionId: s3RegionId,
-            query: query,
+            s3RegionId,
+            query,
             dataType: 'multijson',
             contentType: 'application/x-www-form-urlencoded',
-        }).then((response) => {
-            let marker: string | undefined = undefined;
-            delete results.nextContinuationToken;
+        });
 
-            response.data.forEach((data: { [key: string]: any; }) => {
-                if (data.item) {
-                    results.objects.push({
-                        bucket: bucket, key: data.item.key, size: data.item.fsize,
-                        lastModified: new Date(data.item.putTime / 10000), storageClass: toStorageClass(data.item.type),
+        let marker: string | undefined;
+        delete results.nextContinuationToken;
+
+        response.data.forEach((data: { [key: string]: any; }) => {
+            if (data.item) {
+                results.objects.push({
+                    bucket,
+                    key: data.item.key,
+                    size: data.item.fsize,
+                    lastModified: new Date(data.item.putTime / 10000),
+                    storageClass: toStorageClass(data.item.type),
+                });
+            } else if (data.dir) {
+                results.commonPrefixes ??= [];
+                const foundDup = results.commonPrefixes.some(
+                    commonPrefix => commonPrefix.key === data.dir
+                );
+                if (!foundDup) {
+                    results.commonPrefixes.push({
+                        bucket,
+                        key: data.dir,
                     });
-                } else if (data.dir) {
-                    if (results.commonPrefixes === undefined) {
-                        results.commonPrefixes = [];
-                    }
-                    let foundDup = false;
-                    for (const commonPrefix of results.commonPrefixes) {
-                        if (commonPrefix.key === data.dir) {
-                            foundDup = true;
-                            break;
-                        }
-                    }
-                    if (!foundDup) {
-                        results.commonPrefixes.push({
-                            bucket: bucket, key: data.dir,
-                        });
-                    }
-                }
-                marker = data.marker;
-            });
-
-            if (marker) {
-                newOption.nextContinuationToken = marker;
-                results.nextContinuationToken = marker;
-                if (option?.minKeys) {
-                    let resultsSize = results.objects.length;
-                    if (results.commonPrefixes) {
-                        resultsSize += results.commonPrefixes.length;
-                    }
-                    if (resultsSize < option.minKeys) {
-                        newOption.minKeys = option.minKeys;
-                        newOption.maxKeys = option.minKeys - resultsSize;
-                        this._listObjects(s3RegionId, bucket, prefix, resolve, reject, results, newOption);
-                        return;
-                    }
                 }
             }
-            resolve(results);
-        }).catch(reject);
-    }
-
-    createMultipartUpload(s3RegionId: string, object: Object, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
-        return new Promise((resolve, reject) => {
-            const token = makeUploadToken(
-                this.adapterOption.accessKey,
-                this.adapterOption.secretKey,
-                newUploadPolicy({
-                    bucket: object.bucket,
-                    key: object.key,
-                    storageClassName: object?.storageClassName,
-                })
-            );
-            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Up,
-                path: path,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/x-www-form-urlencoded',
-                headers: { 'authorization': `UpToken ${token}` },
-            }).then((response) => {
-                resolve({ uploadId: response.data.uploadId });
-            }).catch(reject);
+            marker = data.marker;
         });
-    }
 
-    uploadPart(s3RegionId: string, object: Object, uploadId: string, partNumber: number, data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput> {
-        return new Promise((resolve, reject) => {
-            const token = makeUploadToken(
-                this.adapterOption.accessKey,
-                this.adapterOption.secretKey,
-                newUploadPolicy({
-                    bucket: object.bucket,
-                    key: object.key,
-                    storageClassName: object?.storageClassName,
-                })
-            );
-            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
-            this.call({
-                method: 'PUT',
-                serviceName: ServiceName.Up,
-                path: path,
-                data: data,
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                contentType: 'application/octet-stream',
-                headers: {
-                    'authorization': `UpToken ${token}`,
-                    'content-md5': md5.hex(data),
-                },
-                uploadProgress: option?.progressCallback,
-                uploadThrottle: option?.throttle,
-            }).then((response) => {
-                resolve({ etag: response.data.etag });
-            }).catch(reject);
-        });
-    }
-
-    completeMultipartUpload(s3RegionId: string, object: Object, uploadId: string, parts: Array<Part>, originalFileName: string, header?: SetObjectHeader): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const token = makeUploadToken(
-                this.adapterOption.accessKey,
-                this.adapterOption.secretKey,
-                newUploadPolicy({
-                    bucket: object.bucket,
-                    key: object.key,
-                    storageClassName: object.storageClassName,
-                })
-            );
-            const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
-            const metadata: { [metaKey: string]: string; } = {};
-            if (header?.metadata) {
-                for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
-                    metadata[`x-qn-meta-${metaKey}`] = metaValue;
+        if (marker) {
+            newOption.nextContinuationToken = marker;
+            results.nextContinuationToken = marker;
+            if (option?.minKeys) {
+                let resultsSize = results.objects.length;
+                if (results.commonPrefixes) {
+                    resultsSize += results.commonPrefixes.length;
+                }
+                if (resultsSize < option.minKeys) {
+                    newOption.minKeys = option.minKeys;
+                    newOption.maxKeys = option.minKeys - resultsSize;
+                    return await this._listObjects(s3RegionId, bucket, prefix, results, newOption);
                 }
             }
-            const data: any = { fname: originalFileName, parts: parts, metadata: metadata };
-            if (header?.contentType) {
-                data.mimeType = header!.contentType;
-            }
+        }
+        return results;
+    }
 
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Up,
-                path: path,
-                data: JSON.stringify(data),
-                dataType: 'json',
-                s3RegionId: s3RegionId,
-                headers: { 'authorization': `UpToken ${token}` },
-            }).then(() => { resolve(); }).catch(reject);
+    async createMultipartUpload(s3RegionId: string, object: StorageObject, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
+        const token = makeUploadToken(
+            this.adapterOption.accessKey,
+            this.adapterOption.secretKey,
+            newUploadPolicy({
+                bucket: object.bucket,
+                key: object.key,
+                storageClassName: object?.storageClassName,
+            }),
+        );
+        const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
+
+        const response = await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Up,
+            path,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/x-www-form-urlencoded',
+            headers: { 'authorization': `UpToken ${token}` },
+        });
+        return {
+            uploadId: response.data.uploadId,
+        };
+    }
+
+    async uploadPart(
+        s3RegionId: string,
+        object: StorageObject,
+        uploadId: string,
+        partNumber: number,
+        data: Buffer,
+        option?: PutObjectOption,
+    ): Promise<UploadPartOutput> {
+        const token = makeUploadToken(
+            this.adapterOption.accessKey,
+            this.adapterOption.secretKey,
+            newUploadPolicy({
+                bucket: object.bucket,
+                key: object.key,
+                storageClassName: object?.storageClassName,
+            }),
+        );
+        const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
+
+        const response = await this.call({
+            method: 'PUT',
+            serviceName: ServiceName.Up,
+            path,
+            data,
+            dataType: 'json',
+            s3RegionId,
+            contentType: 'application/octet-stream',
+            headers: {
+                'authorization': `UpToken ${token}`,
+                'content-md5': md5.hex(data),
+            },
+            uploadProgress: option?.progressCallback,
+            uploadThrottle: option?.throttle,
+        });
+
+        return { etag: response.data.etag };
+    }
+
+    async completeMultipartUpload(
+        s3RegionId: string,
+        object: StorageObject,
+        uploadId: string,
+        parts: Part[],
+        originalFileName: string,
+        header?: SetObjectHeader,
+    ): Promise<void> {
+        const token = makeUploadToken(
+            this.adapterOption.accessKey,
+            this.adapterOption.secretKey,
+            newUploadPolicy({
+                bucket: object.bucket,
+                key: object.key,
+                storageClassName: object.storageClassName,
+            }),
+        );
+        const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
+        const metadata: { [metaKey: string]: string; } = {};
+        if (header?.metadata) {
+            for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
+                metadata[`x-qn-meta-${metaKey}`] = metaValue;
+            }
+        }
+        const data: any = { fname: originalFileName, parts, metadata };
+        if (header?.contentType) {
+            data.mimeType = header!.contentType;
+        }
+
+        await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Up,
+            path,
+            data: JSON.stringify(data),
+            dataType: 'json',
+            s3RegionId,
+            headers: { 'authorization': `UpToken ${token}` },
         });
     }
 
     clearCache() {
-        Object.keys(this.bucketDomainsCache).forEach((key) => { delete this.bucketDomainsCache[key]; });
+        Object.keys(this.bucketDomainsCache).forEach((key) => {
+            delete this.bucketDomainsCache[key];
+        });
         this.client.clearCache();
         this.regionService.clearCache();
     }
@@ -800,7 +828,7 @@ export class Kodo implements Adapter {
         return this.client.call(options);
     }
 
-    protected callUrl<T = any>(urls: Array<string>, options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+    protected callUrl<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
         return this.client.callUrls(urls, options);
     }
 
@@ -824,7 +852,7 @@ class KodoScope extends Kodo {
     constructor(sdkApiName: string, adapterOption: AdapterOption) {
         super(adapterOption);
         this.requestStats = {
-            sdkApiName: sdkApiName,
+            sdkApiName,
             requestsCount: 0,
         };
     }
@@ -864,18 +892,18 @@ class KodoScope extends Kodo {
 
 function toStorageClass(type?: number): StorageClass {
     switch (type ?? 0) {
-        case 0:
+        case FileType.Standard:
             return 'Standard';
-        case 1:
+        case FileType.InfrequentAccess:
             return 'InfrequentAccess';
-        case 2:
+        case FileType.Glacier:
             return 'Glacier';
         default:
             throw new Error(`Unknown file type: ${type}`);
     }
 }
 
-function encodeObject(object: Object): string {
+function encodeObject(object: StorageObject): string {
     return encodeBucketKey(object.bucket, object.key);
 }
 
@@ -898,10 +926,10 @@ function getObjectHeader(response: HttpClientResponse<Buffer>): ObjectHeader {
     const metadata: { [key: string]: string; } = {};
     for (const [metaKey, metaValue] of Object.entries(response.headers)) {
         if (metaKey?.startsWith('x-qn-meta-')) {
-            metadata[<string>metaKey.substring('x-qn-meta-'.length)] = <string>metaValue;
+            metadata[metaKey.substring('x-qn-meta-'.length) as string] = (metaValue as string);
         }
     }
-    return { size: size, contentType: contentType, lastModified: lastModified, metadata: metadata };
+    return { size, contentType, lastModified, metadata };
 }
 
 
@@ -911,7 +939,8 @@ export interface BucketIdName {
 }
 
 abstract class ObjectOp {
-    abstract getObject(): Object;
+    abstract getObject(): StorageObject;
+
     abstract getOp(): string;
 }
 
@@ -920,7 +949,7 @@ class MoveObjectOp extends ObjectOp {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object.from;
     }
 
@@ -934,7 +963,7 @@ class CopyObjectOp extends ObjectOp {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object.from;
     }
 
@@ -944,11 +973,11 @@ class CopyObjectOp extends ObjectOp {
 }
 
 class DeleteObjectOp extends ObjectOp {
-    constructor(private readonly object: Object) {
+    constructor(private readonly object: StorageObject) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 
@@ -958,11 +987,11 @@ class DeleteObjectOp extends ObjectOp {
 }
 
 class SetObjectStorageClassOp extends ObjectOp {
-    constructor(private readonly object: Object, private readonly storageClass: StorageClass) {
+    constructor(private readonly object: StorageObject, private readonly storageClass: StorageClass) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 
@@ -972,11 +1001,11 @@ class SetObjectStorageClassOp extends ObjectOp {
 }
 
 class RestoreObjectsOp extends ObjectOp {
-    constructor(private readonly object: Object, private readonly days: number) {
+    constructor(private readonly object: StorageObject, private readonly days: number) {
         super();
     }
 
-    getObject(): Object {
+    getObject(): StorageObject {
         return this.object;
     }
 

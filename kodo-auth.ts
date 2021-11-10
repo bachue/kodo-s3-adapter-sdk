@@ -1,8 +1,8 @@
 import { createHmac, Hmac } from 'crypto';
 import { URL } from 'url';
 import { encode as base64Encode } from 'js-base64';
-import { StorageClass } from './adapter'
-import { convertStorageClassToFileType } from './utils'
+import { StorageClass } from './adapter';
+import { convertStorageClassToFileType } from './utils';
 
 function hmacSha1(data: string, secretKey: string): string {
     const hmac: Hmac = createHmac('sha1', secretKey);
@@ -75,6 +75,6 @@ export function signPrivateURL(accessKey: string, secretKey: string, baseURL: UR
     baseURLString += `?e=${deadlineTimestamp}`;
     const sign = base64ToUrlSafe(hmacSha1(baseURLString, secretKey));
     const token = `${accessKey}:${sign}`;
-    baseURLString += `&token=${token}`
+    baseURLString += `&token=${token}`;
     return new URL(baseURLString);
 }

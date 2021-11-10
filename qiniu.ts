@@ -3,8 +3,8 @@ import { Adapter, RequestInfo, ResponseInfo } from './adapter';
 import { Kodo } from './kodo';
 import { S3 } from './s3';
 
-export const KODO_MODE: string = 'kodo';
-export const S3_MODE: string = 's3';
+export const KODO_MODE = 'kodo';
+export const S3_MODE = 's3';
 
 export interface ModeOptions {
     appName?: string;
@@ -22,7 +22,8 @@ export class Qiniu {
 
     private regions: Region[];
 
-    constructor(private readonly accessKey: string,
+    constructor(
+        private readonly accessKey: string,
         private readonly secretKey: string,
         private readonly ucUrl?: string,
         private readonly appendedUserAgent?: string,

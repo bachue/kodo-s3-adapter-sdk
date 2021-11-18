@@ -84,6 +84,9 @@ export class UplogBuffer {
     }
 
     async log(entry: UplogEntry): Promise<void> {
+        if (this.option.bufferSize && this.option.bufferSize <= 0) {
+            return;
+        }
         UplogBuffer.uploadBufferedEntries.push(this.convertUplogEntryToJSON(entry) + '\n');
         const fileSize = await this.flushBufferToLogFile();
         if (fileSize && fileSize >= (this.option.bufferSize ?? 1 << 20)) {
@@ -210,6 +213,18 @@ export class UplogBuffer {
 
     private lockOptions(): lockFile.Options {
         return { retries: 10, retryWait: 100 };
+    }
+
+    public static async forceUnlock(): Promise<Error | null> {
+        return await new Promise((resolve, reject) => {
+            lockFile.unlock(UplogBufferFileLockPath, (err) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve();
+            });
+        });
     }
 }
 

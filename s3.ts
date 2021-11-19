@@ -591,11 +591,11 @@ export class S3 extends Kodo {
                         Objects: batch.map((key) => { return { Key: key }; }),
                     },
                 });
-                const results: any = await this.sendS3Request(request);
+                const results = await this.sendS3Request(request);
 
                 let aborted = false;
-                if (results.Delete) {
-                    for (const deletedObject of results.Delete) {
+                if (results.Deleted) {
+                    for (const deletedObject of results.Deleted) {
                         const index = batch.findIndex((key) => key === deletedObject.Key);
                         if (index < 0) {
                             throw new Error('s3.deleteObjects deleted key which is not given');
@@ -607,7 +607,7 @@ export class S3 extends Kodo {
                     }
                 }
                 if (results.Errors) {
-                    for (const deletedObject of results.Delete) {
+                    for (const deletedObject of results.Errors) {
                         const error = new Error(deletedObject.Message);
                         const index = batch.findIndex((key) => key === deletedObject.Key);
                         if (index < 0) {

@@ -1,69 +1,15 @@
+import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import path from 'path';
-import pkg from './package.json';
+import { UplogEntry } from './fields';
 import lockFile from 'lockfile';
+import pkg from '../package.json';
 
 export interface UplogOption {
     appName?: string;
     appVersion?: string;
     bufferSize?: number;
     onBufferFull?: (buffer: Buffer) => Promise<void>,
-}
-
-export interface UplogEntry {
-    log_type: LogType;
-    os_name?: string;
-    os_version?: string;
-    sdk_name?: string;
-    sdk_version?: string;
-    http_client?: string;
-    http_client_version?: string;
-    up_time?: number;
-}
-
-export interface RequestUplogEntry extends UplogEntry {
-    status_code?: number;
-    req_id?: string;
-    host: string;
-    port: number;
-    method: string;
-    path: string;
-    remote_ip?: string;
-    total_elapsed_time: number;
-    bytes_sent?: number;
-    error_type?: ErrorType;
-    error_description?: string;
-}
-
-export interface SdkApiUplogEntry extends UplogEntry {
-    api_name: string;
-    total_elapsed_time: number;
-    requests_count: number;
-    error_type?: ErrorType;
-    error_description?: string;
-}
-
-export enum LogType {
-    Request = 'request',
-    SdkApi = 'sdkapi',
-}
-
-export enum ErrorType {
-    UnknownError = 'unknown_error',
-    NetworkError = 'network_error',
-    Timeout = 'timeout',
-    UnknownHost = 'unknown_host',
-    CannotConnectToHost = 'cannot_connect_to_host',
-    TransmissionError = 'transmission_error',
-    ProxyError = 'proxy_error',
-    SslError = 'ssl_error',
-    ResponseError = 'response_error',
-    ParseError = 'parse_error',
-    MaliciousResponse = 'malicious_response',
-    UserCanceled = 'user_canceled',
-    BadRequest = 'bad_request',
-    UnexpectedSyscallError = 'unexpected_syscall_error',
 }
 
 export const UplogBufferFilePath = path.join(os.homedir(), '.kodo-s3-adapter-sdk', 'uplog-buffer');
@@ -227,72 +173,3 @@ export class UplogBuffer {
         });
     }
 }
-
-export const getErrorTypeFromStatusCode = (statusCode: number): ErrorType => {
-    if (statusCode > 399 && statusCode < 500 ||
-        statusCode == 573 || statusCode == 579 ||
-        statusCode == 608 || statusCode == 612 ||
-        statusCode == 614 || statusCode == 630 ||
-        statusCode == 631 || statusCode == 701) {
-        return ErrorType.BadRequest;
-    } else {
-        return ErrorType.ResponseError;
-    }
-};
-
-export const getErrorTypeFromRequestError = (err: any): ErrorType => {
-    switch (err.code) {
-        case 'ENOTFOUND':
-            return ErrorType.UnknownHost;
-        case 'ECONNREFUSED':
-            return ErrorType.CannotConnectToHost;
-        case 'ECONNRESET':
-            return ErrorType.CannotConnectToHost;
-        case 'EMFILE':
-            return ErrorType.UnexpectedSyscallError;
-        case 'EACCES':
-            return ErrorType.UnexpectedSyscallError;
-        case 'ETIMEDOUT':
-            return ErrorType.Timeout;
-        case 'EPIPE':
-            return ErrorType.TransmissionError;
-        case 'EPROTO':
-            return ErrorType.NetworkError;
-        case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
-            return ErrorType.SslError;
-    }
-    if (err.name && err.name.endsWith('TimeoutError')) {
-        return ErrorType.Timeout;
-    }
-    switch (err.name) {
-        case 'JSONResponseFormatError':
-            return ErrorType.ParseError;
-        default:
-            return ErrorType.UnknownError;
-    }
-};
-
-export const getErrorTypeFromS3Error = (err: any): ErrorType => {
-    switch (err.code) {
-        case 'TimeoutError':
-            return ErrorType.Timeout;
-        case 'NetworkingError':
-            return ErrorType.NetworkError;
-        case 'UnknownEndpoint':
-            return ErrorType.UnknownHost;
-        case 'XMLParserError':
-            return ErrorType.ParseError;
-        case 'CredentialsError':
-            return ErrorType.BadRequest;
-        case 'InvalidHeader':
-            return ErrorType.BadRequest;
-        case 'InvalidParameter':
-            return ErrorType.BadRequest;
-        case 'InvalidDigest':
-            return ErrorType.BadRequest;
-        case 'RequestAbortedError':
-            return ErrorType.UserCanceled;
-        default:
-            return ErrorType.UnknownError;
-    }
-};

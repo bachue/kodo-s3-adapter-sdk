@@ -59,20 +59,17 @@ function getLogInfoFromUrl(
 }
 
 export class GenRequestUplogEntry {
-    apiName: string;
-    apiType: BaseRequestUplogEntry['api_type'];
-    httpVersion: BaseRequestUplogEntry['http_version'];
-    method: string;
-    url: URL;
-    logType: LogType = LogType.Request;
+    private readonly apiName: string;
+    private readonly apiType: BaseRequestUplogEntry['api_type'];
+    private readonly httpVersion: BaseRequestUplogEntry['http_version'];
+    private readonly method: string;
+    private readonly url: URL;
+    private readonly logType: LogType = LogType.Request;
 
     // before send can get
-    systemInfo: SystemInfo;
-    clientInfo: ClientInfo;
-    operateTarget?: OperateTarget;
-
-    // after request can get
-    transportInfo?: TransportInfo;
+    private readonly systemInfo: SystemInfo;
+    private readonly clientInfo: ClientInfo;
+    private readonly operateTarget?: OperateTarget;
 
     constructor(
         apiName: string,

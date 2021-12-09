@@ -9,28 +9,6 @@ export interface UplogEntry {
     up_time?: number;
 }
 
-export interface RequestUplogEntry extends UplogEntry {
-    status_code?: number;
-    req_id?: string;
-    host: string;
-    port: number;
-    method: string;
-    path: string;
-    remote_ip?: string;
-    total_elapsed_time: number;
-    bytes_sent?: number;
-    error_type?: ErrorType;
-    error_description?: string;
-}
-
-export interface SdkApiUplogEntry extends UplogEntry {
-    api_name: string;
-    total_elapsed_time: number;
-    requests_count: number;
-    error_type?: ErrorType;
-    error_description?: string;
-}
-
 export enum LogType {
     Request = 'request',
     SdkApi = 'sdkapi',

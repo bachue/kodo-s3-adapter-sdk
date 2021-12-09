@@ -1,13 +1,13 @@
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { UplogEntry } from './fields';
 import lockFile from 'lockfile';
-import pkg from '../package.json';
+import { ErrorRequestUplogEntry, RequestUplogEntry } from './request-uplog-entry';
+import { SdkApiUplogEntry } from './sdk-api-uplog-entry';
+
+export type UplogEntry = RequestUplogEntry | ErrorRequestUplogEntry | SdkApiUplogEntry;
 
 export interface UplogOption {
-    appName?: string;
-    appVersion?: string;
     bufferSize?: number;
     onBufferFull?: (buffer: Buffer) => Promise<void>,
 }
@@ -17,7 +17,7 @@ export const UplogBufferFileLockPath = path.join(os.homedir(), '.kodo-s3-adapter
 
 export class UplogBuffer {
     private static uploadBufferedEntries: string[] = [];
-    private static uploadBufferFd: number | undefined = undefined;
+    private static uploadBufferFd: number;
 
     constructor(private readonly option: UplogOption) {
         if (!UplogBuffer.uploadBufferFd) {
@@ -60,11 +60,11 @@ export class UplogBuffer {
         try {
             for (const data of uploadBufferedEntries) {
                 await new Promise((resolve, reject) => {
-                    fs.write(UplogBuffer.uploadBufferFd!, data, err => !err ? resolve() : reject(err));
+                    fs.write(UplogBuffer.uploadBufferFd, data, err => !err ? resolve() : reject(err));
                 });
             }
             stats = await new Promise<fs.Stats>((resolve, reject) => {
-                fs.fstat(UplogBuffer.uploadBufferFd!, (err, stats) => {
+                fs.fstat(UplogBuffer.uploadBufferFd, (err, stats) => {
                     if (err) {
                         reject(err);
                         return;
@@ -147,13 +147,6 @@ export class UplogBuffer {
     }
 
     private convertUplogEntryToJSON(entry: UplogEntry) {
-        entry.os_name = os.platform();
-        entry.os_version = os.release();
-        entry.sdk_name = this.option.appName;
-        entry.sdk_version = this.option.appVersion;
-        entry.http_client = 'kodo-s3-adapter-sdk';
-        entry.http_client_version = pkg.version;
-        entry.up_time = Math.trunc(Date.now() / 1000);
         return JSON.stringify(entry);
     }
 

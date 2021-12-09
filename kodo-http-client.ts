@@ -14,7 +14,7 @@ import { HttpClient, RequestStats, URLRequestOptions } from './http-client';
 export type HttpProtocol = 'http' | 'https';
 
 export interface RequestOptions {
-    method?: HttpMethod;
+    method: HttpMethod;
     path?: string;
     query?: URLSearchParams;
     bucketName?: string;
@@ -28,6 +28,11 @@ export interface RequestOptions {
     uploadProgress?: (uploaded: number, total: number) => void,
     uploadThrottle?: Throttle,
     stats?: RequestStats,
+
+    // for uplog
+    apiName: string;
+    targetBucket?: string,
+    targetKey?: string,
 }
 
 export interface SharedRequestOptions extends AdapterOption {
@@ -36,6 +41,9 @@ export interface SharedRequestOptions extends AdapterOption {
     userAgent?: string;
     retry?: number;
     retryDelay?: number;
+
+    // for uplog
+    apiType: 'kodo' | 's3',
 }
 
 export class KodoHttpClient {
@@ -49,7 +57,6 @@ export class KodoHttpClient {
     constructor(private readonly sharedOptions: SharedRequestOptions) {
         this.regionService = new RegionService(sharedOptions);
         this.uplogBuffer = new UplogBuffer({
-            appName: sharedOptions.appName, appVersion: sharedOptions.appVersion,
             bufferSize: sharedOptions.uplogBufferSize,
             onBufferFull: (buffer: Buffer): Promise<void> => {
                 return this.sendUplog(buffer);
@@ -72,6 +79,9 @@ export class KodoHttpClient {
             uploadProgress: options.uploadProgress,
             uploadThrottle: options.uploadThrottle,
             stats: options.stats,
+
+            // for uplog
+            apiName: options.apiName,
         });
     }
 
@@ -172,6 +182,7 @@ export class KodoHttpClient {
         });
 
         const response = await this.call({
+            apiName: 'sendUplog',
             method: 'POST',
             serviceName: ServiceName.Uplog,
             path: 'log/4',

@@ -66,8 +66,8 @@ export interface AdapterOption {
     regions: Region[];
     ucUrl?: string;
     appendedUserAgent?: string;
-    appName?: string;
-    appVersion?: string;
+    appName: string;
+    appVersion: string;
     uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;

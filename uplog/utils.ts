@@ -1,11 +1,9 @@
 import { ErrorType } from './fields';
 
 export const getErrorTypeFromStatusCode = (statusCode: number): ErrorType => {
-    if (statusCode > 399 && statusCode < 500 ||
-        statusCode == 573 || statusCode == 579 ||
-        statusCode == 608 || statusCode == 612 ||
-        statusCode == 614 || statusCode == 630 ||
-        statusCode == 631 || statusCode == 701) {
+    if (statusCode > 399 && statusCode < 500
+        || [573, 579, 608, 612, 614, 630, 631, 701].includes(statusCode)
+    ) {
         return ErrorType.BadRequest;
     } else {
         return ErrorType.ResponseError;

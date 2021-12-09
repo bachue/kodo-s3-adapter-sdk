@@ -1,11 +1,16 @@
 import http from 'http';
-import { HttpClient2, HttpMethod, RequestOptions2, HttpClientResponse } from 'urllib';
+import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import { Throttle } from 'stream-throttle';
-import { ErrorType, LogType, UplogBuffer, RequestUplogEntry, getErrorTypeFromStatusCode, getErrorTypeFromRequestError } from './uplog';
+import {
+    ErrorType,
+    GenRequestUplogEntry,
+    getErrorTypeFromRequestError,
+    getErrorTypeFromStatusCode,
+    UplogBuffer
+} from './uplog';
 import FormData from 'form-data';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { RequestInfo, ResponseInfo } from './adapter';
-import { parsePort } from './utils';
 import { generateAccessTokenV2 } from './kodo-auth';
 import { generateReqId } from './req_id';
 
@@ -19,6 +24,13 @@ export interface HttpClientOptions {
     retryDelay?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
+
+    // for uplog
+    apiType: 's3' | 'kodo',
+    appName: string,
+    appVersion: string,
+    targetBucket?: string,
+    targetKey?: string,
 }
 
 export interface RequestStats {
@@ -31,10 +43,10 @@ export interface RequestStats {
 export interface URLRequestOptions {
     fullUrl?: boolean;
     appendAuthorization?: boolean;
-    method?: HttpMethod;
+    method: HttpMethod;
     path?: string;
     query?: URLSearchParams;
-    data?: any;
+    data?: string | Buffer;
     dataType?: string;
     form?: FormData;
     streaming?: boolean,
@@ -43,6 +55,9 @@ export interface URLRequestOptions {
     uploadProgress?: (uploaded: number, total: number) => void,
     uploadThrottle?: Throttle,
     stats?: RequestStats,
+
+    // uplog
+    apiName: string,
 }
 
 export class HttpClient {
@@ -81,14 +96,13 @@ export class HttpClient {
                 headers[headerName] = headerValue;
             }
         }
-        const reqId = generateReqId({
+        headers['x-reqid'] = generateReqId({
             url: url.toString(),
             method: options.method,
             dataType: options.dataType,
             contentType: options.contentType,
             headers,
         });
-        headers['x-reqid'] = reqId;
 
         // need refactoring
         return new Promise((resolve, reject) => {
@@ -101,7 +115,7 @@ export class HttpClient {
                 delete options.dataType;
             }
 
-            const data: any = options.data ?? options.form?.getBuffer();
+            const data = options.data ?? options.form?.getBuffer();
             const requestOption: RequestOptions2 = {
                 method: options.method,
                 dataType: options.dataType,
@@ -162,14 +176,19 @@ export class HttpClient {
                 }
             }
 
-            const uplog: RequestUplogEntry = {
-                log_type: LogType.Request,
-                host: url.hostname,
-                port: parsePort(url),
-                method: options.method || 'GET',
-                path: url.pathname,
-                total_elapsed_time: 0,
-            };
+            const uplogMaker = new GenRequestUplogEntry(
+                options.apiName,
+                {
+                    apiType: this.clientOptions.apiType,
+                    httpVersion: '2',
+                    method: options.method,
+                    sdkName: this.clientOptions.appName,
+                    sdkVersion: this.clientOptions.appVersion,
+                    targetBucket: this.clientOptions.targetBucket,
+                    targetKey: this.clientOptions.targetKey,
+                    url: url,
+                }
+            );
 
             const beginTime = new Date().getTime();
             HttpClient.httpClient.request(url.toString(), requestOption).then((response) => {
@@ -189,33 +208,40 @@ export class HttpClient {
                     data: response.data,
                     interval: new Date().getTime() - beginTime,
                 };
-                uplog.status_code = response.status;
-                uplog.total_elapsed_time = responseInfo.interval;
-                if (response.headers['x-reqid']) {
-                    uplog.req_id = response.headers['x-reqid'].toString();
-                }
-                if ((response.res as any).remoteAddress) {
-                    uplog.remote_ip = (response.res as any).remoteAddress;
-                    uplog.port = (response.res as any).remotePort;
-                }
-
                 try {
                     if (callbackError) {
                         return;
                     } else if (response.status >= 200 && response.status < 400) {
-                        this.uplogBuffer.log(uplog).finally(() => {
+                        const requestUplogEntry = uplogMaker.getRequestUplogEntry({
+                            reqId: response.headers['x-reqid']?.toString(),
+                            costDuration: responseInfo.interval,
+                            remoteIp: response.res.socket.remoteAddress!,
+                            reqBodyLength: data?.length ?? 0,
+                            resBodyLength: response.data.length ?? 0,
+                            statusCode: 0
+                        });
+
+                        this.uplogBuffer.log(requestUplogEntry).finally(() => {
                             resolve(response);
                         });
                     } else if (response.data && response.data.error) {
                         const error = new Error(response.data.error);
                         responseInfo.error = error;
-                        uplog.error_type = getErrorTypeFromStatusCode(response.status);
-                        uplog.error_description = error.message;
+                        const errorRequestUplogEntry = uplogMaker.getErrorRequestUplogEntry({
+                            errorType: getErrorTypeFromStatusCode(response.status),
+                            errorDescription: error.message,
+
+                            costDuration: responseInfo.interval,
+
+                            statusCode: response.status,
+                            remoteIp: response.res.socket.remoteAddress,
+                            reqId: response.headers['x-reqid']?.toString(),
+                        });
                         if (options.stats) {
-                            options.stats.errorType = uplog.error_type;
-                            options.stats.errorDescription = uplog.error_description;
+                            options.stats.errorType = errorRequestUplogEntry.error_type;
+                            options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
-                        this.uplogBuffer.log(uplog).finally(() => {
+                        this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
                             if (urls.length > 0) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
@@ -236,13 +262,21 @@ export class HttpClient {
                         }
                         error ||= new Error(response.res.statusMessage);
                         responseInfo.error = error;
-                        uplog.error_type = getErrorTypeFromStatusCode(response.status);
-                        uplog.error_description = error.message;
+                        const errorRequestUplogEntry = uplogMaker.getErrorRequestUplogEntry({
+                            errorType: getErrorTypeFromStatusCode(response.status),
+                            errorDescription: error.message,
+
+                            costDuration: responseInfo.interval,
+
+                            statusCode: response.status,
+                            remoteIp: response.res.socket.remoteAddress,
+                            reqId: response.headers['x-reqid']?.toString(),
+                        });
                         if (options.stats) {
-                            options.stats.errorType = uplog.error_type;
-                            options.stats.errorDescription = uplog.error_description;
+                            options.stats.errorType = errorRequestUplogEntry.error_type;
+                            options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
-                        this.uplogBuffer.log(uplog).finally(() => {
+                        this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
                             if (urls.length > 0) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
@@ -265,14 +299,17 @@ export class HttpClient {
                     this.clientOptions.responseCallback(responseInfo);
                 }
 
-                uplog.total_elapsed_time = responseInfo.interval;
-                uplog.error_type = getErrorTypeFromRequestError(err);
-                uplog.error_description = err.message;
+                const errorRequestUplogEntry = uplogMaker.getErrorRequestUplogEntry({
+                    errorType: getErrorTypeFromRequestError(err),
+                    errorDescription: err.message,
+
+                    costDuration: responseInfo.interval,
+                });
                 if (options.stats) {
-                    options.stats.errorType = uplog.error_type;
-                    options.stats.errorDescription = uplog.error_description;
+                    options.stats.errorType = errorRequestUplogEntry.error_type;
+                    options.stats.errorDescription = errorRequestUplogEntry.error_description;
                 }
-                this.uplogBuffer.log(uplog).finally(() => {
+                this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
                     if (callbackError) {
                         return;
                     } else if (urls.length > 0) {

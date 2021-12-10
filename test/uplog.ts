@@ -21,8 +21,6 @@ describe('UplogBuffer', () => {
 
             let onBufferFullCallbackTimes = 0, buffer = '';
             const uplogBuffer = new UplogBuffer({
-                appName: 'fakeAppName',
-                appVersion: 'fakeAppVersion',
                 bufferSize: 100,
                 onBufferFull: (chunk): Promise<void> => {
                     buffer += chunk.toString();

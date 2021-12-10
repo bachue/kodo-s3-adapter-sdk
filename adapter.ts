@@ -3,9 +3,10 @@ import { URL } from 'url';
 import { Throttle } from 'stream-throttle';
 import { Readable } from 'stream';
 import { OutgoingHttpHeaders } from 'http';
+import { NatureLanguage } from './uplog';
 
 export abstract class Adapter {
-    abstract enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>): Promise<T>;
+    abstract enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>, sdkUplogOption: SdkUplogOption): Promise<T>;
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
     abstract getBucketLocation(bucket: string): Promise<string>;
@@ -46,6 +47,12 @@ export abstract class Adapter {
 
 export type BatchCallback = (index: number, error?: Error) => any;
 export type ProgressCallback = (uploaded: number, total: number) => any;
+
+export interface SdkUplogOption {
+    language: NatureLanguage,
+    targetBucket?: string,
+    targetKey?: string,
+}
 
 export interface ListObjectsOption {
     delimiter?: string;

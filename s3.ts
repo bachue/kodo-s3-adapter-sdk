@@ -27,6 +27,7 @@ import {
     PutObjectOption,
     RequestInfo,
     ResponseInfo,
+    SdkUplogOption,
     SetObjectHeader,
     StorageClass,
     StorageObject,
@@ -35,10 +36,11 @@ import {
 } from './adapter';
 import {
     ErrorRequestUplogEntry,
+    ErrorType,
     GenRequestUplogEntry,
+    GenSdkApiUplogEntry,
     getErrorTypeFromS3Error,
     getErrorTypeFromStatusCode,
-    LogType,
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
@@ -53,27 +55,12 @@ interface RequestOptions {
     stats?: RequestStats,
 }
 
-interface S3AdapterOption extends AdapterOption{
-    appName: string,
-    appVersion: string,
-}
-
 export class S3 extends Kodo {
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
     private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
     private readonly bucketNameToIdCacheLock = new AsyncLock();
     private readonly clientsLock = new AsyncLock();
-
-    // for uplog
-    private readonly appName: string;
-    private readonly appVersion: string;
-
-    constructor(adapterOption: S3AdapterOption) {
-        super(adapterOption);
-        this.appName = adapterOption.appName;
-        this.appVersion = adapterOption.appVersion;
-    }
 
     private async getClient(s3RegionId?: string): Promise<AWS.S3> {
         const cacheKey = s3RegionId ?? '';
@@ -157,8 +144,9 @@ export class S3 extends Kodo {
     async enter<T>(
         sdkApiName: string,
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
+        sdkUplogOption: SdkUplogOption,
     ): Promise<T> {
-        const scope = new S3Scope(sdkApiName, this.adapterOption);
+        const scope = new S3Scope(sdkApiName, this.adapterOption, sdkUplogOption);
 
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
@@ -184,8 +172,8 @@ export class S3 extends Kodo {
                 apiType: 's3',
                 httpVersion: '2',
                 method: request.httpRequest.method,
-                sdkName: this.appName,
-                sdkVersion: this.appVersion,
+                sdkName: this.adapterOption.appName,
+                sdkVersion: this.adapterOption.appVersion,
                 targetBucket: bucketName,
                 targetKey: key,
                 url: new URL(request.httpRequest.endpoint.href),
@@ -941,34 +929,52 @@ export class S3 extends Kodo {
 
 class S3Scope extends S3 {
     private readonly requestStats: RequestStats;
+    private readonly sdkUplogOption: SdkUplogOption;
     private readonly beginTime = new Date();
 
-    constructor(sdkApiName: string, adapterOption: S3AdapterOption) {
+    constructor(
+        sdkApiName: string,
+        adapterOption: AdapterOption,
+        sdkUplogOption: SdkUplogOption,
+    ) {
         super(adapterOption);
+        this.sdkUplogOption = sdkUplogOption;
         this.requestStats = {
+            reqBodyTotalLength: 0,
+            resBodyTotalLength: 0,
             sdkApiName,
-            requestsCount: 0,
+            requestsCount: 0
         };
     }
 
     done(successful: boolean): Promise<void> {
-        const uplog: SdkApiUplogEntry = {
-            log_type: LogType.SdkApi,
-            api_name: this.requestStats.sdkApiName,
-            requests_count: this.requestStats.requestsCount,
-            total_elapsed_time: new Date().getTime() - this.beginTime.getTime(),
-        };
+        const uplogMaker = new GenSdkApiUplogEntry(this.requestStats.sdkApiName, {
+            language: this.sdkUplogOption.language,
+            sdkName: this.adapterOption.appName,
+            sdkVersion: this.adapterOption.appVersion,
+            targetBucket: this.sdkUplogOption.targetBucket,
+            targetKey: this.sdkUplogOption.targetKey,
+        });
+        let uplog: SdkApiUplogEntry = uplogMaker.getSdkApiUplogEntry({
+            costDuration: new Date().getTime() - this.beginTime.getTime(),
+            perceptiveSpeed: 0,
+            reqBodyLength: this.requestStats.reqBodyTotalLength,
+            resBodyLength: this.requestStats.resBodyTotalLength,
+            requestsCount: this.requestStats.requestsCount,
+        });
         if (!successful) {
-            if (this.requestStats.errorType) {
-                uplog.error_type = this.requestStats.errorType;
-            }
-            if (this.requestStats.errorDescription) {
-                uplog.error_description = this.requestStats.errorDescription;
-            }
+            uplog = uplogMaker.getErrorSdkApiUplogEntry({
+                errorDescription: this.requestStats.errorDescription ?? '',
+                errorType: this.requestStats.errorType ?? ErrorType.UnknownError,
+                perceptiveSpeed: 0,
+                requestsCount: this.requestStats.requestsCount,
+            });
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
+        this.requestStats.reqBodyTotalLength = 0;
+        this.requestStats.resBodyTotalLength = 0;
         return this.log(uplog);
     }
 

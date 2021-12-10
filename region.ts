@@ -18,8 +18,8 @@ export interface RegionRequestOptions {
 interface RequestOptions extends RegionRequestOptions {
     accessKey: string;
     ucUrl?: string;
-    appName?: string;
-    appVersion?: string;
+    appName: string;
+    appVersion: string;
     uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
@@ -39,17 +39,17 @@ export class Region {
     rsfUrls: string[] = [];
     apiUrls: string[] = [];
     s3Urls: string[] = [];
-    constructor(readonly id: string,
+    constructor(
+        readonly id: string,
         readonly s3Id: string,
         readonly label?: string,
-        readonly translatedLabels?: { [lang: string]: string; }) {
-    }
+        readonly translatedLabels?: { [lang: string]: string; }
+    ) {}
 
     static getAll(options: GetAllOptions): Promise<Region[]> {
         const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/regions`);
         const uplogBuffer = new UplogBuffer({
-            appName: options.appName, appVersion: options.appVersion,
             bufferSize: options.uplogBufferSize,
         });
         const httpClient = new HttpClient({
@@ -62,6 +62,9 @@ export class Region {
             retryDelay: options.retryDelay,
             requestCallback: options.requestCallback,
             responseCallback: options.responseCallback,
+            apiType: 'kodo',
+            appName: options.appName,
+            appVersion: options.appVersion,
         }, uplogBuffer);
 
         return new Promise((resolve, reject) => {
@@ -72,9 +75,14 @@ export class Region {
                 dataType: 'json',
                 headers: {
                     'authorization': generateAccessTokenV2(
-                        options.accessKey, options.secretKey, requestURL.toString(), 'GET'),
+                        options.accessKey,
+                        options.secretKey,
+                        requestURL.toString(),
+                        'GET'
+                    ),
                 },
                 stats: options.stats,
+                apiName: 'getAllRegion',
             }).then((response) => {
                 response.data.regions ??= [];
                 const regions: Region[] = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
@@ -90,7 +98,6 @@ export class Region {
         requestURL.searchParams.append('bucket', options.bucketName);
 
         const uplogBuffer = new UplogBuffer({
-            appName: options.appName, appVersion: options.appVersion,
             bufferSize: options.uplogBufferSize,
         });
         const httpClient = new HttpClient({
@@ -102,6 +109,9 @@ export class Region {
             retryDelay: options.retryDelay,
             requestCallback: options.requestCallback,
             responseCallback: options.responseCallback,
+            apiType: 'kodo',
+            appName: options.appName,
+            appVersion: options.appVersion,
         }, uplogBuffer);
 
         return new Promise((resolve, reject) => {
@@ -111,6 +121,7 @@ export class Region {
                 method: 'GET',
                 dataType: 'json',
                 stats: options.stats,
+                apiName: 'queryBucketRegion',
             }).then((response) => {
                 let r: any = null;
                 try {

@@ -29,7 +29,7 @@ interface RespondInfo {
     req_id?: string,
 }
 
-export type RequestUplogEntry = BaseRequestUplogEntry & RespondInfo & TransportInfo;
+export type RespondedRequestUplogEntry = BaseRequestUplogEntry & TransportInfo & RespondInfo;
 
 export type ErrorRequestUplogEntry = BaseRequestUplogEntry & Partial<RespondInfo> & ErrorInfo & Pick<TransportInfo, 'total_elapsed_time'>;
 
@@ -59,10 +59,10 @@ function getLogInfoFromUrl(
 }
 
 export class GenRequestUplogEntry {
-    private readonly apiName: string;
+    private readonly apiName: BaseRequestUplogEntry['api_name'];
     private readonly apiType: BaseRequestUplogEntry['api_type'];
     private readonly httpVersion: BaseRequestUplogEntry['http_version'];
-    private readonly method: string;
+    private readonly method: BaseRequestUplogEntry['method'];
     private readonly url: URL;
     private readonly logType: LogType = LogType.Request;
 
@@ -83,7 +83,6 @@ export class GenRequestUplogEntry {
             sdkName: string,
             sdkVersion: string,
 
-            // lihs: can these two fields be parsed with url?
             targetBucket?: string,
             targetKey?: string,
         },
@@ -100,6 +99,7 @@ export class GenRequestUplogEntry {
         if (options.targetBucket && options.targetKey) {
             this.operateTarget = getOperateTarget(options.targetBucket, options.targetKey);
         }
+
         return this;
     }
 
@@ -118,14 +118,14 @@ export class GenRequestUplogEntry {
     }
 
     getRequestUplogEntry(options: {
-        reqBodyLength: RequestUplogEntry['bytes_sent'],
-        resBodyLength: RequestUplogEntry['bytes_received'],
-        costDuration: RequestUplogEntry['total_elapsed_time'],
+        reqBodyLength: RespondedRequestUplogEntry['bytes_sent'],
+        resBodyLength: RespondedRequestUplogEntry['bytes_received'],
+        costDuration: RespondedRequestUplogEntry['total_elapsed_time'],
 
-        statusCode: RequestUplogEntry['status_code'],
-        remoteIp: RequestUplogEntry['remote_ip'],
-        reqId: RequestUplogEntry['req_id'],
-    }): RequestUplogEntry {
+        statusCode: RespondedRequestUplogEntry['status_code'],
+        remoteIp: RespondedRequestUplogEntry['remote_ip'],
+        reqId: RespondedRequestUplogEntry['req_id'],
+    }): RespondedRequestUplogEntry {
         return {
             ...this.baseRequestUplogEntry,
             ...getTransportInfo(options.reqBodyLength, options.resBodyLength, options.costDuration),

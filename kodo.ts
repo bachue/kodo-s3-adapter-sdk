@@ -28,7 +28,7 @@ import {
     ObjectInfo,
     Part,
     PartialObjectError,
-    PutObjectOption,
+    PutObjectOption, SdkUplogOption,
     SetObjectHeader,
     StorageClass,
     StorageObject,
@@ -37,7 +37,7 @@ import {
 } from './adapter';
 import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
 import { RequestStats, URLRequestOptions } from './http-client';
-import { LogType, SdkApiUplogEntry, UplogEntry } from './uplog';
+import { GenSdkApiUplogEntry, UplogEntry, ErrorType, SdkApiUplogEntry } from './uplog';
 import { FileType, convertStorageClassToFileType } from './utils';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
@@ -75,8 +75,12 @@ export class Kodo implements Adapter {
         this.regionService = new RegionService(adapterOption);
     }
 
-    async enter<T>(sdkApiName: string, f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>): Promise<T> {
-        const scope = new KodoScope(sdkApiName, this.adapterOption);
+    async enter<T>(
+        sdkApiName: string,
+        f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
+        sdkUplogOption: SdkUplogOption,
+    ): Promise<T> {
+        const scope = new KodoScope(sdkApiName, this.adapterOption, sdkUplogOption);
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
             await scope.done(true);
@@ -570,7 +574,7 @@ export class Kodo implements Adapter {
     }
 
     private async batchOps(
-        requsetApiName: string,
+        requestApiName: string,
         ops: ObjectOp[],
         batchCount: number,
         s3RegionId: string,
@@ -609,7 +613,7 @@ export class Kodo implements Adapter {
                     data: params.toString(),
 
                     // for uplog
-                    apiName: requsetApiName,
+                    apiName: requestApiName,
                 });
                 let aborted = false;
                 const results: PartialObjectError[] = response.data.map((item: any, index: number) => {
@@ -947,34 +951,52 @@ export class Kodo implements Adapter {
 
 class KodoScope extends Kodo {
     private readonly requestStats: RequestStats;
+    private readonly sdkUplogOption: SdkUplogOption;
     private readonly beginTime = new Date();
 
-    constructor(sdkApiName: string, adapterOption: AdapterOption) {
+    constructor(
+        sdkApiName: string,
+        adapterOption: AdapterOption,
+        sdkUplogOption: SdkUplogOption,
+    ) {
         super(adapterOption);
+        this.sdkUplogOption = sdkUplogOption;
         this.requestStats = {
             sdkApiName,
             requestsCount: 0,
+            reqBodyTotalLength: 0,
+            resBodyTotalLength: 0,
         };
     }
 
     done(successful: boolean): Promise<void> {
-        const uplog: SdkApiUplogEntry = {
-            log_type: LogType.SdkApi,
-            api_name: this.requestStats.sdkApiName,
-            requests_count: this.requestStats.requestsCount,
-            total_elapsed_time: new Date().getTime() - this.beginTime.getTime(),
-        };
+        const uplogMaker = new GenSdkApiUplogEntry(this.requestStats.sdkApiName, {
+            language: this.sdkUplogOption.language,
+            sdkName: this.adapterOption.appName,
+            sdkVersion: this.adapterOption.appVersion,
+            targetBucket: this.sdkUplogOption.targetBucket,
+            targetKey: this.sdkUplogOption.targetKey,
+        });
+        let uplog: SdkApiUplogEntry = uplogMaker.getSdkApiUplogEntry({
+            costDuration: new Date().getTime() - this.beginTime.getTime(),
+            perceptiveSpeed: 0,
+            reqBodyLength: this.requestStats.reqBodyTotalLength,
+            resBodyLength: this.requestStats.resBodyTotalLength,
+            requestsCount: this.requestStats.requestsCount,
+        });
         if (!successful) {
-            if (this.requestStats.errorType) {
-                uplog.error_type = this.requestStats.errorType;
-            }
-            if (this.requestStats.errorDescription) {
-                uplog.error_description = this.requestStats.errorDescription;
-            }
+            uplog = uplogMaker.getErrorSdkApiUplogEntry({
+                errorDescription: this.requestStats.errorDescription ?? '',
+                errorType: this.requestStats.errorType ?? ErrorType.UnknownError,
+                perceptiveSpeed: 0,
+                requestsCount: this.requestStats.requestsCount,
+            });
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
+        this.requestStats.reqBodyTotalLength = 0;
+        this.requestStats.resBodyTotalLength = 0;
         return this.log(uplog);
     }
 

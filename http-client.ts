@@ -6,7 +6,7 @@ import {
     GenRequestUplogEntry,
     getErrorTypeFromRequestError,
     getErrorTypeFromStatusCode,
-    UplogBuffer
+    UplogBuffer,
 } from './uplog';
 import FormData from 'form-data';
 import { ReadableStreamBuffer } from 'stream-buffers';
@@ -36,6 +36,8 @@ export interface HttpClientOptions {
 export interface RequestStats {
     sdkApiName: string,
     requestsCount: number,
+    reqBodyTotalLength: number,
+    resBodyTotalLength: number,
     errorType?: ErrorType;
     errorDescription?: string;
 }

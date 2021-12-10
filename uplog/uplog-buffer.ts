@@ -2,10 +2,12 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import lockFile from 'lockfile';
-import { ErrorRequestUplogEntry, RequestUplogEntry } from './request-uplog-entry';
-import { SdkApiUplogEntry } from './sdk-api-uplog-entry';
+import { ErrorRequestUplogEntry, RespondedRequestUplogEntry } from './request-uplog-entry';
+import { ErrorSdkApiUplogEntry, RespondedSdkApiUplogEntry } from './sdk-api-uplog-entry';
 
-export type UplogEntry = RequestUplogEntry | ErrorRequestUplogEntry | SdkApiUplogEntry;
+export type RequestUplogEntry = RespondedRequestUplogEntry | ErrorRequestUplogEntry;
+export type SdkApiUplogEntry = RespondedSdkApiUplogEntry | ErrorSdkApiUplogEntry;
+export type UplogEntry = RequestUplogEntry | SdkApiUplogEntry;
 
 export interface UplogOption {
     bufferSize?: number;

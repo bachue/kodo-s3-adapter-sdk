@@ -1,3 +1,4 @@
+import dns from 'dns';
 import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
@@ -14,6 +15,7 @@ import {
     BatchCallback,
     Bucket,
     Domain,
+    EnterUplogOption,
     FrozenInfo,
     GetObjectStreamOption,
     InitPartsOutput,
@@ -144,9 +146,12 @@ export class S3 extends Kodo {
     async enter<T>(
         sdkApiName: string,
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
-        sdkUplogOption: SdkUplogOption,
+        enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
-        const scope = new S3Scope(sdkApiName, this.adapterOption, sdkUplogOption);
+        const scope = new S3Scope(sdkApiName, this.adapterOption, {
+            ...enterUplogOption,
+            language: this.adapterOption.appNatureLanguage,
+        });
 
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
@@ -170,7 +175,7 @@ export class S3 extends Kodo {
             apiName,
             {
                 apiType: 's3',
-                httpVersion: '2',
+                httpVersion: '1.1',
                 method: request.httpRequest.method,
                 sdkName: this.adapterOption.appName,
                 sdkVersion: this.adapterOption.appVersion,
@@ -190,6 +195,15 @@ export class S3 extends Kodo {
         request.httpRequest.headers['X-Reqid'] = reqId;
 
         const options = this.getRequestsOption();
+        const remoteAddress = await new Promise<string>(resolve => {
+            dns.lookup(request.httpRequest.endpoint.hostname, (err, address) => {
+                if (err) {
+                    resolve('');
+                    return;
+                }
+                resolve(address);
+            });
+        });
 
         request.on('sign', (request) => {
             if (options.stats) {
@@ -201,10 +215,6 @@ export class S3 extends Kodo {
             } else {
                 url += request.httpRequest.path;
             }
-            uplog.host = request.httpRequest.endpoint.host;
-            uplog.port = request.httpRequest.endpoint.port;
-            uplog.method = request.httpRequest.method;
-            uplog.path = request.httpRequest.path;
             requestInfo = {
                 url,
                 method: request.httpRequest.method,
@@ -228,11 +238,19 @@ export class S3 extends Kodo {
                 this.adapterOption.responseCallback(responseInfo);
             }
 
+            const reqBodyLength = getContentLength(request.httpRequest);
+            const resBodyLength = getContentLength(response.httpResponse);
+            if (options.stats) {
+                options.stats.bytesTotalSent +=
+                    reqBodyLength;
+                options.stats.bytesTotalReceived +=
+                    resBodyLength;
+            }
             uplog = uplogMaker.getRequestUplogEntry({
                 costDuration: responseInfo.interval,
-                remoteIp: '', // FIXME: can't get ip by s3
-                reqBodyLength: request.httpRequest.body.length,
-                resBodyLength: response.httpResponse.body.length,
+                remoteIp: remoteAddress,
+                bytesSent: reqBodyLength,
+                bytesReceived: resBodyLength,
                 reqId: response.requestId,
                 statusCode: response.httpResponse.statusCode,
             });
@@ -280,7 +298,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(bucket),
         ]);
         const request = s3.deleteBucket({ Bucket: bucketId });
-        await this.sendS3Request(request, 'deltebBucket', bucket);
+        await this.sendS3Request(request, 'deleteBucket', bucket);
     }
 
     async getBucketLocation(bucket: string): Promise<string> {
@@ -428,11 +446,12 @@ export class S3 extends Kodo {
         if (option?.rangeStart || option?.rangeEnd) {
             range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
         }
-        return s3.getObject({
+        const request = s3.getObject({
             Bucket: bucketId,
             Key: object.key,
             Range: range,
-        }).createReadStream();
+        });
+        return request.createReadStream();
     }
 
     async getObjectURL(s3RegionId: string, object: StorageObject, _domain?: Domain, deadline?: Date): Promise<URL> {
@@ -940,10 +959,10 @@ class S3Scope extends S3 {
         super(adapterOption);
         this.sdkUplogOption = sdkUplogOption;
         this.requestStats = {
-            reqBodyTotalLength: 0,
-            resBodyTotalLength: 0,
+            bytesTotalSent: 0,
+            bytesTotalReceived: 0,
             sdkApiName,
-            requestsCount: 0
+            requestsCount: 0,
         };
     }
 
@@ -957,24 +976,22 @@ class S3Scope extends S3 {
         });
         let uplog: SdkApiUplogEntry = uplogMaker.getSdkApiUplogEntry({
             costDuration: new Date().getTime() - this.beginTime.getTime(),
-            perceptiveSpeed: 0,
-            reqBodyLength: this.requestStats.reqBodyTotalLength,
-            resBodyLength: this.requestStats.resBodyTotalLength,
+            bytesSent: this.requestStats.bytesTotalSent,
+            bytesReceived: this.requestStats.bytesTotalReceived,
             requestsCount: this.requestStats.requestsCount,
         });
         if (!successful) {
             uplog = uplogMaker.getErrorSdkApiUplogEntry({
                 errorDescription: this.requestStats.errorDescription ?? '',
                 errorType: this.requestStats.errorType ?? ErrorType.UnknownError,
-                perceptiveSpeed: 0,
                 requestsCount: this.requestStats.requestsCount,
             });
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
-        this.requestStats.reqBodyTotalLength = 0;
-        this.requestStats.resBodyTotalLength = 0;
+        this.requestStats.bytesTotalSent = 0;
+        this.requestStats.bytesTotalReceived = 0;
         return this.log(uplog);
     }
 
@@ -1090,4 +1107,24 @@ class RestoreObjectOp extends ObjectOp {
     getObject(): StorageObject {
         return this.object;
     }
+}
+
+function getContentLength(r: AWS.HttpRequest | AWS.HttpResponse): number {
+    let result =
+        parseInt(
+            r.headers['Content-Length'] ?? r.headers['content-length'],
+            10
+        );
+    if (!Number.isNaN(result)) {
+        return result;
+    }
+    if (typeof r.body === 'string') {
+        result = Buffer.from(r.body).length;
+        return result;
+    }
+    if (r.body instanceof Buffer) {
+        result = r.body.length;
+        return result;
+    }
+    return 0;
 }

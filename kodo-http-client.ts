@@ -82,6 +82,8 @@ export class KodoHttpClient {
 
             // for uplog
             apiName: options.apiName,
+            targetBucket: options.targetBucket,
+            targetKey: options.targetKey,
         });
     }
 

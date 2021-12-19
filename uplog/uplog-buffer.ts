@@ -44,7 +44,7 @@ export class UplogBuffer {
 
     private async flushBufferToLogFile(): Promise<number | undefined> {
         try {
-            await new Promise<any>((resolve, reject) => {
+            await new Promise<void>((resolve, reject) => {
                 lockFile.lock(UplogBufferFileLockPath, this.lockOptions(), err => !err ? resolve() : reject(err));
             });
         } catch (err) {
@@ -61,7 +61,7 @@ export class UplogBuffer {
         let stats: fs.Stats;
         try {
             for (const data of uploadBufferedEntries) {
-                await new Promise((resolve, reject) => {
+                await new Promise<void>((resolve, reject) => {
                     fs.write(UplogBuffer.uploadBufferFd, data, err => !err ? resolve() : reject(err));
                 });
             }
@@ -81,7 +81,7 @@ export class UplogBuffer {
             throw err;
         }
 
-        await new Promise((resolve, reject) => {
+        await new Promise<void>((resolve, reject) => {
             lockFile.unlock(UplogBufferFileLockPath, (err) => {
                 if (err) {
                     reject(err);
@@ -98,7 +98,7 @@ export class UplogBuffer {
             return;
         }
         try {
-            await new Promise<any>((resolve, reject) => {
+            await new Promise<void>((resolve, reject) => {
                 lockFile.lock(UplogBufferFileLockPath, this.lockOptions(), err => !err ? resolve() : reject(err));
             });
         } catch (err) {

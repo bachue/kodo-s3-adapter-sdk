@@ -18,6 +18,7 @@ import {
     BatchCallback,
     Bucket,
     Domain,
+    EnterUplogOption,
     FrozenInfo,
     GetObjectStreamOption,
     InitPartsOutput,
@@ -28,7 +29,8 @@ import {
     ObjectInfo,
     Part,
     PartialObjectError,
-    PutObjectOption, SdkUplogOption,
+    PutObjectOption,
+    SdkUplogOption,
     SetObjectHeader,
     StorageClass,
     StorageObject,
@@ -61,6 +63,7 @@ export class Kodo implements Adapter {
             appendedUserAgent: adapterOption.appendedUserAgent,
             appName: adapterOption.appName,
             appVersion: adapterOption.appVersion,
+            appNatureLanguage: adapterOption.appNatureLanguage,
             uplogBufferSize: adapterOption.uplogBufferSize,
             userAgent,
             timeout: [30000, 300000],
@@ -78,9 +81,12 @@ export class Kodo implements Adapter {
     async enter<T>(
         sdkApiName: string,
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
-        sdkUplogOption: SdkUplogOption,
+        enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
-        const scope = new KodoScope(sdkApiName, this.adapterOption, sdkUplogOption);
+        const scope = new KodoScope(sdkApiName, this.adapterOption, {
+            ...enterUplogOption,
+            language: this.adapterOption.appNatureLanguage,
+        });
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
             await scope.done(true);
@@ -100,6 +106,7 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'createBucket',
+            targetBucket: bucket,
         });
     }
 
@@ -112,6 +119,7 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'deleteBucket',
+            targetBucket: bucket,
         });
     }
 
@@ -200,7 +208,7 @@ export class Kodo implements Adapter {
                 s3RegionId,
 
                 // for uplog
-                apiName: 'listDomains',
+                apiName: 'queryDomain',
             }),
             this.call({
                 method: 'POST',
@@ -211,7 +219,7 @@ export class Kodo implements Adapter {
                 s3RegionId,
 
                 // for uplog
-                apiName: 'listDomains',
+                apiName: 'queryBucket',
             }),
             this.call({
                 method: 'GET',
@@ -222,7 +230,7 @@ export class Kodo implements Adapter {
                 s3RegionId,
 
                 // for uplog
-                apiName: 'listDomains',
+                apiName: 'queryDefaultDomain',
             }),
         ];
 
@@ -317,6 +325,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'deleteObject',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
     }
 
@@ -470,6 +480,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'getObjectInfo',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
         return {
             bucket: object.bucket,
@@ -493,6 +505,8 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'getObjectHeader',
+                targetBucket: object.bucket,
+                targetKey: object.key,
             },
         );
         return getObjectHeader(response);
@@ -509,6 +523,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'moveObject',
+            targetBucket: transferObject.from.bucket,
+            targetKey: transferObject.from.key,
         });
     }
 
@@ -523,12 +539,14 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'copyObject',
+            targetBucket: transferObject.from.bucket,
+            targetKey: transferObject.from.key,
         });
     }
 
     moveObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(
-            'moveObject',
+            'moveObjects',
             transferObjects.map((to) => new MoveObjectOp(to)),
             100,
             s3RegionId,
@@ -538,7 +556,7 @@ export class Kodo implements Adapter {
 
     copyObjects(s3RegionId: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(
-            'copyObject',
+            'copyObjects',
             transferObjects.map((to) => new CopyObjectOp(to)),
             100,
             s3RegionId,
@@ -548,7 +566,7 @@ export class Kodo implements Adapter {
 
     deleteObjects(s3RegionId: string, bucket: string, keys: string[], callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(
-            'deleteObject',
+            'deleteObjects',
             keys.map((key) => new DeleteObjectOp({ bucket, key })),
             100,
             s3RegionId,
@@ -558,7 +576,7 @@ export class Kodo implements Adapter {
 
     setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
         return this.batchOps(
-            'setObjectStorageClass',
+            'setObjectsStorageClass',
             keys.map((key) => new SetObjectStorageClassOp({
                 bucket,
                 key,
@@ -570,7 +588,7 @@ export class Kodo implements Adapter {
     }
 
     restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]> {
-        return this.batchOps('restoreObject', keys.map((key) => new RestoreObjectsOp({ bucket, key }, days)), 100, s3RegionId, callback);
+        return this.batchOps('restoreObjects', keys.map((key) => new RestoreObjectsOp({ bucket, key }, days)), 100, s3RegionId, callback);
     }
 
     private async batchOps(
@@ -614,6 +632,7 @@ export class Kodo implements Adapter {
 
                     // for uplog
                     apiName: requestApiName,
+                    targetBucket: batch[0]?.getObject().bucket
                 });
                 let aborted = false;
                 const results: PartialObjectError[] = response.data.map((item: any, index: number) => {
@@ -670,6 +689,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'getFrozenInfo',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
 
         // lihs: convert to enum
@@ -704,6 +725,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'restoreObject',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
     }
 
@@ -718,6 +741,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'setObjectStorageClass',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
     }
 
@@ -964,8 +989,8 @@ class KodoScope extends Kodo {
         this.requestStats = {
             sdkApiName,
             requestsCount: 0,
-            reqBodyTotalLength: 0,
-            resBodyTotalLength: 0,
+            bytesTotalSent: 0,
+            bytesTotalReceived: 0,
         };
     }
 
@@ -979,30 +1004,33 @@ class KodoScope extends Kodo {
         });
         let uplog: SdkApiUplogEntry = uplogMaker.getSdkApiUplogEntry({
             costDuration: new Date().getTime() - this.beginTime.getTime(),
-            perceptiveSpeed: 0,
-            reqBodyLength: this.requestStats.reqBodyTotalLength,
-            resBodyLength: this.requestStats.resBodyTotalLength,
+            bytesSent: this.requestStats.bytesTotalSent,
+            bytesReceived: this.requestStats.bytesTotalReceived,
             requestsCount: this.requestStats.requestsCount,
         });
         if (!successful) {
             uplog = uplogMaker.getErrorSdkApiUplogEntry({
                 errorDescription: this.requestStats.errorDescription ?? '',
                 errorType: this.requestStats.errorType ?? ErrorType.UnknownError,
-                perceptiveSpeed: 0,
                 requestsCount: this.requestStats.requestsCount,
             });
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
-        this.requestStats.reqBodyTotalLength = 0;
-        this.requestStats.resBodyTotalLength = 0;
+        this.requestStats.bytesTotalSent = 0;
+        this.requestStats.bytesTotalReceived = 0;
         return this.log(uplog);
     }
 
     protected call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
         options.stats = this.requestStats;
         return super.call(options);
+    }
+
+    protected callUrl<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        options.stats = this.requestStats;
+        return super.callUrl(urls, options);
     }
 
     getRegionRequestOptions(): RegionRequestOptions {

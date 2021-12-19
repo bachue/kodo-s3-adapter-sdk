@@ -55,7 +55,7 @@ export class Region {
         const httpClient = new HttpClient({
             accessKey: options.accessKey,
             secretKey: options.secretKey,
-            protocol: requestURL.protocol === 'https' ? 'https' : 'http',
+            protocol: requestURL.protocol === 'https:' ? 'https' : 'http',
             timeout: options.timeout,
             userAgent: USER_AGENT,
             retry: options.retry,

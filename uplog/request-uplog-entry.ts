@@ -39,10 +39,10 @@ function parsePort(url: URL): number {
         return port;
     }
     switch (url.protocol) {
-        case 'http':
+        case 'http:':
             return 80;
-        case 'https':
-            return 80;
+        case 'https:':
+            return 443;
         default:
             return 0;
     }
@@ -96,7 +96,7 @@ export class GenRequestUplogEntry {
 
         this.systemInfo = getSystemInfo();
         this.clientInfo = getClientInfo(options.sdkName, options.sdkVersion);
-        if (options.targetBucket && options.targetKey) {
+        if (options.targetBucket) {
             this.operateTarget = getOperateTarget(options.targetBucket, options.targetKey);
         }
 
@@ -118,8 +118,8 @@ export class GenRequestUplogEntry {
     }
 
     getRequestUplogEntry(options: {
-        reqBodyLength: RespondedRequestUplogEntry['bytes_sent'],
-        resBodyLength: RespondedRequestUplogEntry['bytes_received'],
+        bytesSent: RespondedRequestUplogEntry['bytes_sent'],
+        bytesReceived: RespondedRequestUplogEntry['bytes_received'],
         costDuration: RespondedRequestUplogEntry['total_elapsed_time'],
 
         statusCode: RespondedRequestUplogEntry['status_code'],
@@ -128,7 +128,7 @@ export class GenRequestUplogEntry {
     }): RespondedRequestUplogEntry {
         return {
             ...this.baseRequestUplogEntry,
-            ...getTransportInfo(options.reqBodyLength, options.resBodyLength, options.costDuration),
+            ...getTransportInfo(options.bytesSent, options.bytesReceived, options.costDuration),
             status_code: options.statusCode,
             remote_ip: options.remoteIp,
             req_id: options.reqId,

@@ -38,18 +38,18 @@ export function getClientInfo(sdkName: string, sdkVersion: string): ClientInfo {
 
 export interface OperateTarget {
     target_bucket: string,
-    target_key: string,
+    target_key?: string,
 }
 
-export function getOperateTarget(targetBucket: string, targetKey: string): OperateTarget {
+export function getOperateTarget(targetBucket: string, targetKey?: string): OperateTarget {
     return {
         target_bucket: targetBucket,
-        target_key: targetKey,
+        target_key: !targetKey ? undefined : targetKey,
     };
 }
 
 export interface TransportInfo {
-    total_elapsed_time: number,
+    total_elapsed_time: number, // ms
     bytes_sent: number,
     bytes_received: number,
 }

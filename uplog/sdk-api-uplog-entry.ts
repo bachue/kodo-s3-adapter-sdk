@@ -14,12 +14,7 @@ import {
     TransportInfo
 } from './fields';
 
-
-export enum NatureLanguage {
-    ChineseSimplified = 'zh-CN',
-    EnglishUS = 'en-US',
-    Japanese = 'ja-JP',
-}
+export type NatureLanguage = 'zh-CN' | 'en-US' | 'ja-JP';
 
 interface BaseSdkApiUplogEntry extends BaseUplogEntry {
     language: NatureLanguage,
@@ -29,10 +24,10 @@ interface OperationInfo {
     requests_count: number,
     /**
      * - bytes/sec for upload/download
-     * - operations/sec for batch operation
-     * - items/sec for list items
+     * - TODO: operations/sec for batch operation
+     * - TODO: items/sec for list items
      */
-    perceptive_speed: number,
+    perceptive_speed?: number,
 }
 
 export type RespondedSdkApiUplogEntry = BaseSdkApiUplogEntry & TransportInfo & OperationInfo;
@@ -65,7 +60,7 @@ export class GenSdkApiUplogEntry {
 
         this.systemInfo = getSystemInfo();
         this.clientInfo = getClientInfo(options.sdkName, options.sdkVersion);
-        if (options.targetBucket && options.targetKey) {
+        if (options.targetBucket) {
             this.operateTarget = getOperateTarget(options.targetBucket, options.targetKey);
         }
 
@@ -84,17 +79,16 @@ export class GenSdkApiUplogEntry {
     }
 
     getSdkApiUplogEntry(options: {
-        reqBodyLength: RespondedSdkApiUplogEntry['bytes_sent'],
-        resBodyLength: RespondedSdkApiUplogEntry['bytes_received'],
+        bytesSent: RespondedSdkApiUplogEntry['bytes_sent'],
+        bytesReceived: RespondedSdkApiUplogEntry['bytes_received'],
         costDuration: RespondedSdkApiUplogEntry['total_elapsed_time'],
 
-        perceptiveSpeed: number,
         requestsCount: number,
-    }): RespondedSdkApiUplogEntry {
+    },): RespondedSdkApiUplogEntry {
         return {
             ...this.baseSdkApiUplogEntry,
-            ...getTransportInfo(options.reqBodyLength, options.resBodyLength, options.costDuration),
-            perceptive_speed: options.perceptiveSpeed,
+            ...getTransportInfo(options.bytesSent, options.bytesReceived, options.costDuration),
+            perceptive_speed: calculatePerceptiveSpeed(this.apiName, options),
             requests_count: options.requestsCount,
         };
     }
@@ -103,14 +97,30 @@ export class GenSdkApiUplogEntry {
         errorType: ErrorType,
         errorDescription: string,
 
-        perceptiveSpeed?: number,
         requestsCount?: number,
     }): ErrorSdkApiUplogEntry {
         return {
             ...this.baseSdkApiUplogEntry,
             ...getErrorInfo(options.errorType, options.errorDescription),
-            perceptive_speed: options.perceptiveSpeed,
             requests_count: options.requestsCount,
         };
     }
+}
+
+function calculatePerceptiveSpeed(
+    sdkApiName: string,
+    options: {
+        costDuration: number, // ms
+        bytesSent: number,
+        bytesReceived: number,
+        requestsCount: number,
+    },
+): number | undefined {
+    if (sdkApiName === 'downloadFile') {
+        return Math.trunc(options.bytesReceived / options.costDuration);
+    }
+    if (sdkApiName === 'uploadFile') {
+        return Math.trunc(options.bytesSent / options.costDuration);
+    }
+    return;
 }

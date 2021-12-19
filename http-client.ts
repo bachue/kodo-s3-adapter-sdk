@@ -1,4 +1,5 @@
 import http from 'http';
+import { Readable } from 'stream';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import { Throttle } from 'stream-throttle';
 import {
@@ -36,8 +37,8 @@ export interface HttpClientOptions {
 export interface RequestStats {
     sdkApiName: string,
     requestsCount: number,
-    reqBodyTotalLength: number,
-    resBodyTotalLength: number,
+    bytesTotalSent: number,
+    bytesTotalReceived: number,
     errorType?: ErrorType;
     errorDescription?: string;
 }
@@ -60,6 +61,8 @@ export interface URLRequestOptions {
 
     // uplog
     apiName: string,
+    targetBucket?: string,
+    targetKey?: string,
 }
 
 export class HttpClient {
@@ -186,8 +189,8 @@ export class HttpClient {
                     method: options.method,
                     sdkName: this.clientOptions.appName,
                     sdkVersion: this.clientOptions.appVersion,
-                    targetBucket: this.clientOptions.targetBucket,
-                    targetKey: this.clientOptions.targetKey,
+                    targetBucket: options.targetBucket,
+                    targetKey: options.targetKey,
                     url: url,
                 }
             );
@@ -213,16 +216,35 @@ export class HttpClient {
                 try {
                     if (callbackError) {
                         return;
-                    } else if (response.status >= 200 && response.status < 400) {
+                    }
+
+                    const reqBody: Buffer = data instanceof Buffer
+                        ? data
+                        : Buffer.from(data ?? '');
+                    if (response.status >= 200 && response.status < 400) {
                         const requestUplogEntry = uplogMaker.getRequestUplogEntry({
                             reqId: response.headers['x-reqid']?.toString(),
                             costDuration: responseInfo.interval,
-                            remoteIp: response.res.socket.remoteAddress!,
-                            reqBodyLength: data?.length ?? 0,
-                            resBodyLength: response.data.length ?? 0,
-                            statusCode: 0
+                            // @ts-ignore
+                            remoteIp: response.res.remoteAddress,
+                            bytesSent: reqBody.length,
+                            // @ts-ignore
+                            bytesReceived: response.res.size,
+                            statusCode: response.status,
                         });
-
+                        if (response.res instanceof Readable) {
+                            response.res.on('data', (data: Buffer) => {
+                                if (options.stats) {
+                                    options.stats.bytesTotalReceived += data.length;
+                                }
+                            });
+                        } else {
+                            if (options.stats) {
+                                options.stats.bytesTotalSent += reqBody.length;
+                                // @ts-ignore
+                                options.stats.bytesTotalReceived += response.res.size;
+                            }
+                        }
                         this.uplogBuffer.log(requestUplogEntry).finally(() => {
                             resolve(response);
                         });
@@ -236,7 +258,8 @@ export class HttpClient {
                             costDuration: responseInfo.interval,
 
                             statusCode: response.status,
-                            remoteIp: response.res.socket.remoteAddress,
+                            // @ts-ignore
+                            remoteIp: response.res.remoteAddress,
                             reqId: response.headers['x-reqid']?.toString(),
                         });
                         if (options.stats) {
@@ -271,7 +294,8 @@ export class HttpClient {
                             costDuration: responseInfo.interval,
 
                             statusCode: response.status,
-                            remoteIp: response.res.socket.remoteAddress,
+                            // @ts-ignore
+                            remoteIp: response.res.remoteAddress,
                             reqId: response.headers['x-reqid']?.toString(),
                         });
                         if (options.stats) {
@@ -334,10 +358,10 @@ export class HttpClient {
         if (protocol) {
             switch (protocol) {
                 case 'http':
-                    url.protocol = 'http';
+                    url.protocol = 'http:';
                     break;
                 case 'https':
-                    url.protocol = 'https';
+                    url.protocol = 'https:';
                     break;
             }
         }

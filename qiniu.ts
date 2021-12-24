@@ -2,13 +2,15 @@ import { Region } from './region';
 import { Adapter, RequestInfo, ResponseInfo } from './adapter';
 import { Kodo } from './kodo';
 import { S3 } from './s3';
+import { NatureLanguage } from './uplog';
 
 export const KODO_MODE = 'kodo';
 export const S3_MODE = 's3';
 
 export interface ModeOptions {
-    appName?: string;
-    appVersion?: string;
+    appName: string;
+    appVersion: string;
+    appNatureLanguage: NatureLanguage;
     uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
@@ -44,6 +46,7 @@ export class Qiniu {
             appendedUserAgent: this.appendedUserAgent,
             appName: options?.appName,
             appVersion: options?.appVersion,
+            appNatureLanguage: options?.appNatureLanguage,
             uplogBufferSize: options?.uplogBufferSize,
             requestCallback: options?.requestCallback,
             responseCallback: options?.responseCallback,

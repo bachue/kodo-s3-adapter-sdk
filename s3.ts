@@ -1,3 +1,4 @@
+import dns from 'dns';
 import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
@@ -14,6 +15,7 @@ import {
     BatchCallback,
     Bucket,
     Domain,
+    EnterUplogOption,
     FrozenInfo,
     GetObjectStreamOption,
     InitPartsOutput,
@@ -27,6 +29,7 @@ import {
     PutObjectOption,
     RequestInfo,
     ResponseInfo,
+    SdkUplogOption,
     SetObjectHeader,
     StorageClass,
     StorageObject,
@@ -34,9 +37,12 @@ import {
     UploadPartOutput,
 } from './adapter';
 import {
+    ErrorRequestUplogEntry,
+    ErrorType,
+    GenRequestUplogEntry,
+    GenSdkApiUplogEntry,
     getErrorTypeFromS3Error,
     getErrorTypeFromStatusCode,
-    LogType,
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
@@ -140,8 +146,12 @@ export class S3 extends Kodo {
     async enter<T>(
         sdkApiName: string,
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
+        enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
-        const scope = new S3Scope(sdkApiName, this.adapterOption);
+        const scope = new S3Scope(sdkApiName, this.adapterOption, {
+            ...enterUplogOption,
+            language: this.adapterOption.appNatureLanguage,
+        });
 
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
@@ -153,17 +163,29 @@ export class S3 extends Kodo {
         }
     }
 
-    private async sendS3Request<D, E>(request: AWS.Request<D, E>): Promise<D> {
+    private async sendS3Request<D, E>(
+        request: AWS.Request<D, E>,
+        apiName: string,
+        bucketName?: string,
+        key?: string,
+    ): Promise<D> {
         let requestInfo: RequestInfo | undefined;
         const beginTime = new Date().getTime();
-        const uplog: RequestUplogEntry = {
-            log_type: LogType.Request,
-            host: request.httpRequest.endpoint.host,
-            port: request.httpRequest.endpoint.port,
-            method: request.httpRequest.method,
-            path: request.httpRequest.path,
-            total_elapsed_time: 0,
-        };
+        const uplogMaker = new GenRequestUplogEntry(
+            apiName,
+            {
+                apiType: 's3',
+                httpVersion: '1.1',
+                method: request.httpRequest.method,
+                sdkName: this.adapterOption.appName,
+                sdkVersion: this.adapterOption.appVersion,
+                targetBucket: bucketName,
+                targetKey: key,
+                url: new URL(request.httpRequest.endpoint.href),
+            },
+        );
+
+        let uplog: RequestUplogEntry | ErrorRequestUplogEntry;
 
         const reqId = generateReqId({
             url: request.httpRequest.endpoint.href,
@@ -173,6 +195,15 @@ export class S3 extends Kodo {
         request.httpRequest.headers['X-Reqid'] = reqId;
 
         const options = this.getRequestsOption();
+        const remoteAddress = await new Promise<string>(resolve => {
+            dns.lookup(request.httpRequest.endpoint.hostname, (err, address) => {
+                if (err) {
+                    resolve('');
+                    return;
+                }
+                resolve(address);
+            });
+        });
 
         request.on('sign', (request) => {
             if (options.stats) {
@@ -184,10 +215,6 @@ export class S3 extends Kodo {
             } else {
                 url += request.httpRequest.path;
             }
-            uplog.host = request.httpRequest.endpoint.host;
-            uplog.port = request.httpRequest.endpoint.port;
-            uplog.method = request.httpRequest.method;
-            uplog.path = request.httpRequest.path;
             requestInfo = {
                 url,
                 method: request.httpRequest.method,
@@ -211,11 +238,22 @@ export class S3 extends Kodo {
                 this.adapterOption.responseCallback(responseInfo);
             }
 
-            uplog.status_code = response.httpResponse.statusCode;
-            uplog.total_elapsed_time = responseInfo.interval;
-            if (response.requestId) {
-                uplog.req_id = response.requestId;
+            const reqBodyLength = getContentLength(request.httpRequest);
+            const resBodyLength = getContentLength(response.httpResponse);
+            if (options.stats) {
+                options.stats.bytesTotalSent +=
+                    reqBodyLength;
+                options.stats.bytesTotalReceived +=
+                    resBodyLength;
             }
+            uplog = uplogMaker.getRequestUplogEntry({
+                costDuration: responseInfo.interval,
+                remoteIp: remoteAddress,
+                bytesSent: reqBodyLength,
+                bytesReceived: resBodyLength,
+                reqId: response.requestId,
+                statusCode: response.httpResponse.statusCode,
+            });
             if (response.error) {
                 if (response.httpResponse.statusCode) {
                     uplog.error_type = getErrorTypeFromStatusCode(response.httpResponse.statusCode);
@@ -251,7 +289,7 @@ export class S3 extends Kodo {
                 LocationConstraint: s3RegionId,
             },
         });
-        await this.sendS3Request(request);
+        await this.sendS3Request(request, 'createBucket', bucket);
     }
 
     async deleteBucket(s3RegionId: string, bucket: string): Promise<void> {
@@ -260,7 +298,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(bucket),
         ]);
         const request = s3.deleteBucket({ Bucket: bucketId });
-        await this.sendS3Request(request);
+        await this.sendS3Request(request, 'deleteBucket', bucket);
     }
 
     async getBucketLocation(bucket: string): Promise<string> {
@@ -273,13 +311,13 @@ export class S3 extends Kodo {
 
     private async _getBucketLocation(s3: AWS.S3, bucketId: string): Promise<string> {
         const request = s3.getBucketLocation({ Bucket: bucketId });
-        const data = await this.sendS3Request(request);
+        const data = await this.sendS3Request(request, 'getBucketLocation', this.bucketIdToNameCache[bucketId] ?? bucketId);
         return data.LocationConstraint!;
     }
 
     async listBuckets(): Promise<Bucket[]> {
         const s3 = await this.getClient();
-        const data = await this.sendS3Request(s3.listBuckets());
+        const data = await this.sendS3Request(s3.listBuckets(), 'listBuckets');
 
         const bucketNamePromises: Promise<string>[] = data.Buckets!.map((info: any) => {
             return this.fromS3BucketIdToKodoBucketName(info.Name);
@@ -323,7 +361,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const request = s3.deleteObject({ Bucket: bucketId, Key: object.key });
-        await this.sendS3Request(request);
+        await this.sendS3Request(request, 'deleteObject', object.bucket, object.key);
     }
 
     async putObject(
@@ -369,7 +407,7 @@ export class S3 extends Kodo {
             });
         }
 
-        await this.sendS3Request(uploader);
+        await this.sendS3Request(uploader, 'putObject', object.bucket, object.key);
     }
 
     async getObject(
@@ -382,7 +420,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const request = s3.getObject({ Bucket: bucketId, Key: object.key });
-        const data: any = await this.sendS3Request(request);
+        const data: any = await this.sendS3Request(request, 'getObject', object.bucket, object.key);
         return {
             data: Buffer.from(data.Body!),
             header: {
@@ -408,11 +446,12 @@ export class S3 extends Kodo {
         if (option?.rangeStart || option?.rangeEnd) {
             range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
         }
-        return s3.getObject({
+        const request = s3.getObject({
             Bucket: bucketId,
             Key: object.key,
             Range: range,
-        }).createReadStream();
+        });
+        return request.createReadStream();
     }
 
     async getObjectURL(s3RegionId: string, object: StorageObject, _domain?: Domain, deadline?: Date): Promise<URL> {
@@ -436,7 +475,12 @@ export class S3 extends Kodo {
             this.getClient(s3RegionId),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
-        const data: any = await this.sendS3Request(s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }));
+        const data: any = await this.sendS3Request(
+            s3.listObjects({ Bucket: bucketId, MaxKeys: 1, Prefix: object.key }),
+            'getObjectInfo',
+            object.bucket,
+            object.key,
+        );
 
         if (!data?.Contents?.[0]?.Key || data.Contents[0].Key !== object.key) {
             throw new Error('no such file or directory');
@@ -460,7 +504,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const request = s3.headObject({ Bucket: bucketId, Key: object.key });
-        const data = await this.sendS3Request(request);
+        const data = await this.sendS3Request(request, 'getObjectHeader', object.bucket, object.key);
         return {
             size: data.ContentLength!,
             contentType: data.ContentType!,
@@ -498,7 +542,7 @@ export class S3 extends Kodo {
             MetadataDirective: 'COPY',
             StorageClass: storageClass,
         };
-        await this.sendS3Request(s3.copyObject(params));
+        await this.sendS3Request(s3.copyObject(params), 'copyObject', transferObject.from.bucket, transferObject.from.key);
     }
 
     private async getObjectStorageClass(s3RegionId: string, object: StorageObject): Promise<string | undefined> {
@@ -507,7 +551,7 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const request = s3.headObject({ Bucket: bucketId, Key: object.key });
-        const data: any = await this.sendS3Request(request);
+        const data: any = await this.sendS3Request(request, 'getObjectStorageClass', object.bucket, object.key);
         return data.StorageClass;
     }
 
@@ -591,7 +635,11 @@ export class S3 extends Kodo {
                         Objects: batch.map((key) => { return { Key: key }; }),
                     },
                 });
-                const results = await this.sendS3Request(request);
+                const results = await this.sendS3Request(
+                    request,
+                    'deleteObjects',
+                    bucket,
+                );
 
                 let aborted = false;
                 if (results.Deleted) {
@@ -657,7 +705,12 @@ export class S3 extends Kodo {
             this.getClient(s3RegionId),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
-        const data: any = await this.sendS3Request(s3.headObject({ Bucket: bucketId, Key: object.key }));
+        const data: any = await this.sendS3Request(
+            s3.headObject({ Bucket: bucketId, Key: object.key }),
+            'getFrozenInfo',
+            object.bucket,
+            object.key,
+        );
         if (data.StorageClass?.toLowerCase() !== 'glacier') {
             return { status: 'Normal' };
         }
@@ -691,7 +744,12 @@ export class S3 extends Kodo {
                 GlacierJobParameters: { Tier: 'Standard' },
             },
         };
-        await this.sendS3Request(s3.restoreObject(params));
+        await this.sendS3Request(
+            s3.restoreObject(params),
+            'restoreObject',
+            object.bucket,
+            object.key,
+        );
     }
 
     async setObjectStorageClass(s3RegionId: string, object: StorageObject, storageClass: StorageClass): Promise<void> {
@@ -707,7 +765,7 @@ export class S3 extends Kodo {
             MetadataDirective: 'COPY',
             StorageClass: storageClassParam,
         });
-        await this.sendS3Request(request);
+        await this.sendS3Request(request, 'setObjectStorageClass', object.bucket, object.key);
     }
 
     async listObjects(s3RegionId: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects> {
@@ -738,7 +796,7 @@ export class S3 extends Kodo {
             MaxKeys: option?.maxKeys,
             Prefix: prefix,
         });
-        const data: any = await this.sendS3Request(request);
+        const data: any = await this.sendS3Request(request, 'listS3Objects', bucket);
         delete results.nextContinuationToken;
         if (data?.Contents.length > 0) {
             results.objects = [
@@ -803,7 +861,7 @@ export class S3 extends Kodo {
             ContentDisposition: makeContentDisposition(originalFileName),
             ContentType: header?.contentType,
         });
-        const data: any = await this.sendS3Request(request);
+        const data: any = await this.sendS3Request(request, 'createMultipartUpload', object.bucket, object.key);
         return { uploadId: data.UploadId! };
     }
 
@@ -845,7 +903,7 @@ export class S3 extends Kodo {
                 option.progressCallback!(progress.loaded, progress.total);
             });
         }
-        const respond: any = await this.sendS3Request(uploader);
+        const respond: any = await this.sendS3Request(uploader, 'uploadPart', object.bucket, object.key);
         return { etag: respond.ETag! };
     }
 
@@ -872,7 +930,7 @@ export class S3 extends Kodo {
                 })),
             },
         });
-        await this.sendS3Request(request);
+        await this.sendS3Request(request, 'completeMultipartUpload', object.bucket, object.key);
     }
 
     clearCache() {
@@ -890,34 +948,50 @@ export class S3 extends Kodo {
 
 class S3Scope extends S3 {
     private readonly requestStats: RequestStats;
+    private readonly sdkUplogOption: SdkUplogOption;
     private readonly beginTime = new Date();
 
-    constructor(sdkApiName: string, adapterOption: AdapterOption) {
+    constructor(
+        sdkApiName: string,
+        adapterOption: AdapterOption,
+        sdkUplogOption: SdkUplogOption,
+    ) {
         super(adapterOption);
+        this.sdkUplogOption = sdkUplogOption;
         this.requestStats = {
+            bytesTotalSent: 0,
+            bytesTotalReceived: 0,
             sdkApiName,
             requestsCount: 0,
         };
     }
 
     done(successful: boolean): Promise<void> {
-        const uplog: SdkApiUplogEntry = {
-            log_type: LogType.SdkApi,
-            api_name: this.requestStats.sdkApiName,
-            requests_count: this.requestStats.requestsCount,
-            total_elapsed_time: new Date().getTime() - this.beginTime.getTime(),
-        };
+        const uplogMaker = new GenSdkApiUplogEntry(this.requestStats.sdkApiName, {
+            language: this.sdkUplogOption.language,
+            sdkName: this.adapterOption.appName,
+            sdkVersion: this.adapterOption.appVersion,
+            targetBucket: this.sdkUplogOption.targetBucket,
+            targetKey: this.sdkUplogOption.targetKey,
+        });
+        let uplog: SdkApiUplogEntry = uplogMaker.getSdkApiUplogEntry({
+            costDuration: new Date().getTime() - this.beginTime.getTime(),
+            bytesSent: this.requestStats.bytesTotalSent,
+            bytesReceived: this.requestStats.bytesTotalReceived,
+            requestsCount: this.requestStats.requestsCount,
+        });
         if (!successful) {
-            if (this.requestStats.errorType) {
-                uplog.error_type = this.requestStats.errorType;
-            }
-            if (this.requestStats.errorDescription) {
-                uplog.error_description = this.requestStats.errorDescription;
-            }
+            uplog = uplogMaker.getErrorSdkApiUplogEntry({
+                errorDescription: this.requestStats.errorDescription ?? '',
+                errorType: this.requestStats.errorType ?? ErrorType.UnknownError,
+                requestsCount: this.requestStats.requestsCount,
+            });
         }
         this.requestStats.requestsCount = 0;
         this.requestStats.errorType = undefined;
         this.requestStats.errorDescription = undefined;
+        this.requestStats.bytesTotalSent = 0;
+        this.requestStats.bytesTotalReceived = 0;
         return this.log(uplog);
     }
 
@@ -1033,4 +1107,24 @@ class RestoreObjectOp extends ObjectOp {
     getObject(): StorageObject {
         return this.object;
     }
+}
+
+function getContentLength(r: AWS.HttpRequest | AWS.HttpResponse): number {
+    let result =
+        parseInt(
+            r.headers['Content-Length'] ?? r.headers['content-length'],
+            10
+        );
+    if (!Number.isNaN(result)) {
+        return result;
+    }
+    if (typeof r.body === 'string') {
+        result = Buffer.from(r.body).length;
+        return result;
+    }
+    if (r.body instanceof Buffer) {
+        result = r.body.length;
+        return result;
+    }
+    return 0;
 }

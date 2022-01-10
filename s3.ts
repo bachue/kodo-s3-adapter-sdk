@@ -396,6 +396,7 @@ export class S3 extends Kodo {
             Body: dataSource,
             ContentLength: data.length,
             ContentType: header?.contentType,
+            ContentMD5: md5.base64(data),
             Metadata: header?.metadata,
             ContentDisposition: makeContentDisposition(originalFileName),
             StorageClass: covertStorageClassToS3StorageClass(object.storageClassName),
@@ -894,7 +895,7 @@ export class S3 extends Kodo {
             Key: object.key,
             Body: dataSource,
             ContentLength: data.length,
-            ContentMD5: md5.hex(data),
+            ContentMD5: md5.base64(data),
             PartNumber: partNumber, UploadId: uploadId,
         };
         const uploader = s3.uploadPart(params);

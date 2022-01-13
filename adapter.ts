@@ -6,6 +6,8 @@ import { OutgoingHttpHeaders } from 'http';
 import { NatureLanguage } from './uplog';
 
 export abstract class Adapter {
+    abstract storageClasses: StorageClass[];
+
     abstract enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>, sdkUplogOption?: EnterUplogOption): Promise<T>;
     abstract createBucket(region: string, bucket: string): Promise<void>;
     abstract deleteBucket(region: string, bucket: string): Promise<void>;
@@ -17,8 +19,8 @@ export abstract class Adapter {
     abstract getFrozenInfo(region: string, object: StorageObject): Promise<FrozenInfo>;
     abstract restoreObject(region: string, object: StorageObject, days: number): Promise<void>;
     abstract restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]>;
-    abstract setObjectStorageClass(region: string, object: StorageObject, storageClass: StorageClass): Promise<void>;
-    abstract setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]>;
+    abstract setObjectStorageClass(region: string, object: StorageObject, storageClass: StorageClass['kodoName']): Promise<void>;
+    abstract setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass['kodoName'], callback?: BatchCallback): Promise<PartialObjectError[]>;
 
     abstract moveObject(region: string, transferObject: TransferObject): Promise<void>;
     abstract moveObjects(region: string, transferObjects: TransferObject[], callback?: BatchCallback): Promise<PartialObjectError[]>;
@@ -119,7 +121,18 @@ export interface FrozenInfo {
     expiryDate?: Date;
 }
 
-export type StorageClass = 'Standard' | 'InfrequentAccess' | 'Glacier';
+export type StorageClass = {
+    fileType: number,
+    kodoName: string,
+    s3Name: string,
+};
+
+export const DEFAULT_STORAGE_CLASS: StorageClass = {
+    fileType: 0,
+    kodoName: 'Standard',
+    s3Name: 'STANDARD',
+};
+
 export type FrozenStatus = 'Normal' | 'Frozen' | 'Unfreezing' | 'Unfrozen';
 
 export interface TransferObject {
@@ -130,7 +143,7 @@ export interface TransferObject {
 export interface StorageObject {
     bucket: string;
     key: string;
-    storageClassName?: StorageClass;
+    storageClassName?: StorageClass['kodoName'];
 }
 
 export interface PartialObjectError extends StorageObject {
@@ -156,7 +169,7 @@ export interface ObjectHeader extends SetObjectHeader {
 export interface ObjectInfo extends StorageObject {
     size: number;
     lastModified: Date;
-    storageClass: StorageClass;
+    storageClass: StorageClass['kodoName'];
 }
 
 export interface InitPartsOutput {

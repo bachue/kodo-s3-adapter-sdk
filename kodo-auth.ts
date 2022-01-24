@@ -2,7 +2,6 @@ import { createHmac, Hmac } from 'crypto';
 import { URL } from 'url';
 import { encode as base64Encode } from 'js-base64';
 import { StorageClass } from './adapter';
-import { convertStorageClassToFileType } from './utils';
 
 function hmacSha1(data: string, secretKey: string): string {
     const hmac: Hmac = createHmac('sha1', secretKey);
@@ -38,15 +37,15 @@ export interface UploadPolicy {
 }
 
 export function newUploadPolicy({
-bucket,
-key,
-deadline,
-storageClassName,
+    bucket,
+    key,
+    deadline,
+    fileType,
 }: {
     bucket: string,
     key?: string,
     deadline?: Date,
-    storageClassName?: StorageClass,
+    fileType?: StorageClass['fileType'],
 }): UploadPolicy {
     let scope = bucket;
     if (key) {
@@ -57,7 +56,7 @@ storageClassName,
     return {
         scope,
         deadline: Math.floor(deadline.getTime() / 1000),
-        fileType: convertStorageClassToFileType(storageClassName),
+        fileType: fileType,
     };
 }
 

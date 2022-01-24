@@ -1,4 +1,5 @@
 import os from 'os';
+import { HttpClientResponse } from 'urllib';
 import pkg from './package.json';
 import { generateAccessTokenV2 } from './kodo-auth';
 import { RequestInfo, ResponseInfo } from './adapter';
@@ -32,6 +33,18 @@ export interface QueryOptions extends RequestOptions {
     bucketName: string;
 }
 
+export interface RegionWithStorageClasses {
+    regionId: string,
+    regionS3Id: string,
+    storageClasses: {
+        fileType: number,
+        kodoName: string,
+        s3Name: string,
+        billingI18n: Record<string, string>,
+        nameI18n: Record<string, string>,
+    }[],
+}
+
 export class Region {
     upUrls: string[] = [];
     ucUrls: string[] = [];
@@ -46,7 +59,7 @@ export class Region {
         readonly translatedLabels?: { [lang: string]: string; }
     ) {}
 
-    static getAll(options: GetAllOptions): Promise<Region[]> {
+    private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
         const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/regions`);
         const uplogBuffer = new UplogBuffer({
@@ -67,28 +80,59 @@ export class Region {
             appVersion: options.appVersion,
         }, uplogBuffer);
 
-        return new Promise((resolve, reject) => {
-            httpClient.call([requestURL.toString()], {
-                fullUrl: true,
-                appendAuthorization: false,
-                method: 'GET',
-                dataType: 'json',
-                headers: {
-                    'authorization': generateAccessTokenV2(
-                        options.accessKey,
-                        options.secretKey,
-                        requestURL.toString(),
-                        'GET'
-                    ),
-                },
-                stats: options.stats,
-                apiName: 'getAllRegion',
-            }).then((response) => {
+        return httpClient.call([requestURL.toString()], {
+            fullUrl: true,
+            appendAuthorization: false,
+            method: 'GET',
+            dataType: 'json',
+            headers: {
+                'authorization': generateAccessTokenV2(
+                    options.accessKey,
+                    options.secretKey,
+                    requestURL.toString(),
+                    'GET'
+                ),
+            },
+            stats: options.stats,
+            apiName: 'getAllRegion',
+        });
+    }
+
+    static getAll(options: GetAllOptions): Promise<Region[]> {
+        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+
+        return Region.requestAll(options)
+            .then((response) => {
                 response.data.regions ??= [];
                 const regions: Region[] = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
-                resolve(regions);
-            }, reject);
-        });
+                return regions;
+            });
+    }
+
+    static getAllRegionsStorageClasses(options: GetAllOptions): Promise<RegionWithStorageClasses[]> {
+        return Region.requestAll(options)
+            .then(
+                (response) => {
+                    response.data.regions ??= [];
+                    return response.data.regions.map((r: any) => ({
+                        regionId: r.id,
+                        regionS3Id: r.s3.region_alias,
+                        storageClasses: r?.extra?.file_types?.map((t: any) => ({
+                            fileType: t.file_type,
+                            kodoName: t.storage_class,
+                            s3Name: t.s3_storage_class,
+                            billingI18n: t.billing_i18n,
+                            nameI18n: t.name_i18n,
+                        })) ?? [],
+                    }));
+                },
+                (statusMessage?: string) => {
+                    if (statusMessage === 'Not found') {
+                        return Promise.resolve([]);
+                    }
+                    return Promise.reject(statusMessage);
+                }
+            );
     }
 
     static query(options: QueryOptions): Promise<Region> {

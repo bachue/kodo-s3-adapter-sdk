@@ -49,7 +49,6 @@ import {
 import { RequestStats } from './http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
-import { covertStorageClassToS3StorageClass } from './utils';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -399,7 +398,11 @@ export class S3 extends Kodo {
             ContentMD5: md5.base64(data),
             Metadata: header?.metadata,
             ContentDisposition: makeContentDisposition(originalFileName),
-            StorageClass: covertStorageClassToS3StorageClass(object.storageClassName),
+            StorageClass: this.convertStorageClass(
+                object.storageClassName,
+                'kodoName',
+                's3Name',
+            ),
         };
         const uploader = s3.putObject(params);
         if (option?.progressCallback) {
@@ -491,7 +494,11 @@ export class S3 extends Kodo {
             key: data.Contents[0].Key!,
             size: data.Contents[0].Size!,
             lastModified: data.Contents[0].LastModified!,
-            storageClass: toStorageClass(data.Contents[0].StorageClass),
+            storageClass: this.convertStorageClass(
+                data.Contents[0].StorageClass,
+                's3Name',
+                'kodoName',
+            ),
         };
     }
 
@@ -564,8 +571,24 @@ export class S3 extends Kodo {
         return this.s3BatchOps(transferObjects.map((to) => new CopyObjectOp(this, s3RegionId, to)), callback);
     }
 
-    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
-        return this.s3BatchOps(keys.map((key) => new SetObjectStorageClassOp(this, s3RegionId, { bucket, key }, storageClass)), callback);
+    setObjectsStorageClass(
+        s3RegionId: string,
+        bucket: string,
+        keys: string[],
+        storageClass: StorageClass['kodoName'],
+        callback?: BatchCallback
+    ): Promise<PartialObjectError[]> {
+        return this.s3BatchOps(
+            keys.map((key) =>
+                new SetObjectStorageClassOp(
+                    this,
+                    s3RegionId,
+                    { bucket, key },
+                    storageClass,
+                )
+            ),
+            callback,
+        );
     }
 
     restoreObjects(s3RegionId: string, bucket: string, keys: string[], days: number, callback?: BatchCallback): Promise<PartialObjectError[]> {
@@ -753,18 +776,25 @@ export class S3 extends Kodo {
         );
     }
 
-    async setObjectStorageClass(s3RegionId: string, object: StorageObject, storageClass: StorageClass): Promise<void> {
+    async setObjectStorageClass(
+        s3RegionId: string,
+        object: StorageObject,
+        storageClass: StorageClass['kodoName'],
+    ): Promise<void> {
         const [s3, bucketId] = await Promise.all([
             this.getClient(s3RegionId),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
 
-        const storageClassParam = covertStorageClassToS3StorageClass(storageClass);
         const request = s3.copyObject({
             Bucket: bucketId, Key: object.key,
             CopySource: `/${bucketId}/${encodeURIComponent(object.key)}`,
             MetadataDirective: 'COPY',
-            StorageClass: storageClassParam,
+            StorageClass: this.convertStorageClass(
+                storageClass,
+                'kodoName',
+                's3Name',
+            ),
         });
         await this.sendS3Request(request, 'setObjectStorageClass', object.bucket, object.key);
     }
@@ -1009,7 +1039,7 @@ class S3Scope extends S3 {
     }
 }
 
-function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass {
+function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass['kodoName'] {
     const s = (storageClass ?? 'standard').toLowerCase();
     if (s === 'standard') {
         return 'Standard';
@@ -1077,7 +1107,7 @@ class SetObjectStorageClassOp extends ObjectOp {
         private readonly s3: S3,
         private readonly s3RegionId: string,
         private readonly object: StorageObject,
-        private readonly storageClass: StorageClass,
+        private readonly storageClass: StorageClass['kodoName'],
     ) {
         super();
     }

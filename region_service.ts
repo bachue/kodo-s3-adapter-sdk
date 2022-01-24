@@ -1,5 +1,5 @@
 import AsyncLock from 'async-lock';
-import { Region, RegionRequestOptions } from './region';
+import { Region, RegionRequestOptions, RegionWithStorageClasses } from './region';
 import { AdapterOption } from './adapter';
 
 export interface S3IdEndpoint {
@@ -11,6 +11,7 @@ export type GetAllRegionsOptions = RegionRequestOptions;
 
 export class RegionService {
     private allRegions: Region[] | undefined = undefined;
+    private allRegionsStorageClass: RegionWithStorageClasses[] | undefined = undefined;
     private readonly allRegionsLock = new AsyncLock();
 
     constructor(private readonly adapterOption: AdapterOption) {
@@ -48,8 +49,38 @@ export class RegionService {
         return regions;
     }
 
+    async getAllRegionsStorageClasses(options?: GetAllRegionsOptions): Promise<RegionWithStorageClasses[]> {
+        if (this.allRegionsStorageClass && this.allRegionsStorageClass.length > 0) {
+            return this.allRegionsStorageClass;
+        }
+
+        this.allRegionsStorageClass = await this.allRegionsLock.acquire('allStorageClasses', (): Promise<RegionWithStorageClasses[]> => {
+            if (this.allRegionsStorageClass && this.allRegionsStorageClass.length > 0) {
+                return Promise.resolve(this.allRegionsStorageClass);
+            }
+
+            return Region.getAllRegionsStorageClasses({
+                accessKey: this.adapterOption.accessKey,
+                secretKey: this.adapterOption.secretKey,
+                ucUrl: this.adapterOption.ucUrl,
+                timeout: options?.timeout,
+                retry: options?.retry,
+                retryDelay: options?.retryDelay,
+                appName: this.adapterOption.appName,
+                appVersion: this.adapterOption.appVersion,
+                uplogBufferSize: this.adapterOption.uplogBufferSize,
+                requestCallback: this.adapterOption.requestCallback,
+                responseCallback: this.adapterOption.responseCallback,
+                stats: options?.stats,
+            });
+        });
+
+        return this.allRegionsStorageClass;
+    }
+
     clearCache() {
         this.allRegions = undefined;
+        this.allRegionsStorageClass = undefined;
     }
 
     async getS3Endpoint(s3RegionId?: string, options?: GetAllRegionsOptions): Promise<S3IdEndpoint> {

@@ -22,15 +22,13 @@ export class Qiniu {
         Qiniu.ADAPTERS[modeName] = adapter;
     }
 
-    private regions: Region[];
-
     constructor(
         private readonly accessKey: string,
         private readonly secretKey: string,
         private readonly ucUrl?: string,
         private readonly appendedUserAgent?: string,
-        regions?: Region[]) {
-        this.regions = regions || [];
+        private readonly regions: Region[] = [],
+    ) {
     }
 
     mode(modeName: string, options?: ModeOptions): Adapter {

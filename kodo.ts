@@ -17,6 +17,7 @@ import {
     AdapterOption,
     BatchCallback,
     Bucket,
+    DEFAULT_STORAGE_CLASS,
     Domain,
     EnterUplogOption,
     FrozenInfo,
@@ -40,11 +41,11 @@ import {
 import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
 import { RequestStats, URLRequestOptions } from './http-client';
 import { GenSdkApiUplogEntry, UplogEntry, ErrorType, SdkApiUplogEntry } from './uplog';
-import { FileType, convertStorageClassToFileType } from './utils';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
 export class Kodo implements Adapter {
+    storageClasses: StorageClass[] = [];
     protected readonly client: KodoHttpClient;
     protected readonly regionService: RegionService;
     private readonly bucketDomainsCache: { [bucketName: string]: Domain[]; } = {};
@@ -76,6 +77,24 @@ export class Kodo implements Adapter {
             apiType: 'kodo',
         });
         this.regionService = new RegionService(adapterOption);
+    }
+
+    convertStorageClass<
+        T extends keyof StorageClass,
+        K extends keyof StorageClass,
+    >(
+        from: StorageClass[K] | undefined,
+        fromFormat: K,
+        targetFormat: T,
+        fallbackValue: StorageClass[T] = DEFAULT_STORAGE_CLASS[targetFormat],
+    ): StorageClass[T] {
+        if (from === undefined) {
+            return fallbackValue;
+        }
+        const storageClass = this.storageClasses.find(
+            storageClass => storageClass[fromFormat] === from
+        );
+        return storageClass?.[targetFormat] ?? fallbackValue;
     }
 
     async enter<T>(
@@ -344,7 +363,13 @@ export class Kodo implements Adapter {
             newUploadPolicy({
                 bucket: object.bucket,
                 key: object.key,
-                storageClassName: object?.storageClassName,
+                fileType: object?.storageClassName
+                    ? this.convertStorageClass(
+                        object.storageClassName,
+                        'kodoName',
+                        'fileType',
+                    )
+                    : undefined,
             }),
         );
 
@@ -488,7 +513,12 @@ export class Kodo implements Adapter {
             key: response.data.key,
             size: response.data.fsize,
             lastModified: new Date(response.data.putTime / 10000),
-            storageClass: toStorageClass(response.data.type),
+            storageClass: this.convertStorageClass(
+                response.data.type,
+                'fileType',
+                'kodoName',
+                'unknown',
+            ),
         };
     }
 
@@ -574,13 +604,22 @@ export class Kodo implements Adapter {
         );
     }
 
-    setObjectsStorageClass(s3RegionId: string, bucket: string, keys: string[], storageClass: StorageClass, callback?: BatchCallback): Promise<PartialObjectError[]> {
+    setObjectsStorageClass(
+        s3RegionId: string,
+        bucket: string,
+        keys: string[],
+        storageClass: StorageClass['kodoName'],
+        callback?: BatchCallback
+    ): Promise<PartialObjectError[]> {
         return this.batchOps(
             'setObjectsStorageClass',
-            keys.map((key) => new SetObjectStorageClassOp({
-                bucket,
-                key,
-            }, storageClass)),
+            keys.map((key) => new SetObjectStorageClassOp(
+                {
+                    bucket,
+                    key,
+                },
+                this.convertStorageClass(storageClass, 'kodoName', 'fileType'),
+            )),
             100,
             s3RegionId,
             callback,
@@ -730,11 +769,20 @@ export class Kodo implements Adapter {
         });
     }
 
-    async setObjectStorageClass(s3RegionId: string, object: StorageObject, storageClass: StorageClass): Promise<void> {
+    async setObjectStorageClass(
+        s3RegionId: string,
+        object: StorageObject,
+        storageClass: StorageClass['kodoName'],
+    ): Promise<void> {
+        const fileType = this.convertStorageClass(
+            storageClass,
+            'kodoName',
+            'fileType',
+        );
         await this.call({
             method: 'POST',
             serviceName: ServiceName.Rs,
-            path: `chtype/${encodeObject(object)}/type/${convertStorageClassToFileType(storageClass)}`,
+            path: `chtype/${encodeObject(object)}/type/${fileType}`,
             dataType: 'json',
             s3RegionId,
             contentType: 'application/x-www-form-urlencoded',
@@ -797,7 +845,12 @@ export class Kodo implements Adapter {
                     key: data.item.key,
                     size: data.item.fsize,
                     lastModified: new Date(data.item.putTime / 10000),
-                    storageClass: toStorageClass(data.item.type),
+                    storageClass: this.convertStorageClass(
+                        data.item.type,
+                        'fileType',
+                        'kodoName',
+                        'unknown',
+                    ),
                 });
             } else if (data.dir) {
                 results.commonPrefixes ??= [];
@@ -839,7 +892,13 @@ export class Kodo implements Adapter {
             newUploadPolicy({
                 bucket: object.bucket,
                 key: object.key,
-                storageClassName: object?.storageClassName,
+                fileType: object?.storageClassName
+                    ? this.convertStorageClass(
+                        object.storageClassName,
+                        'kodoName',
+                        'fileType',
+                    )
+                    : undefined,
             }),
         );
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
@@ -875,7 +934,13 @@ export class Kodo implements Adapter {
             newUploadPolicy({
                 bucket: object.bucket,
                 key: object.key,
-                storageClassName: object?.storageClassName,
+                fileType: object?.storageClassName
+                    ? this.convertStorageClass(
+                        object.storageClassName,
+                        'kodoName',
+                        'fileType',
+                    )
+                    : undefined,
             }),
         );
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
@@ -916,7 +981,11 @@ export class Kodo implements Adapter {
             newUploadPolicy({
                 bucket: object.bucket,
                 key: object.key,
-                storageClassName: object.storageClassName,
+                fileType: this.convertStorageClass(
+                    object.storageClassName,
+                    'kodoName',
+                    'fileType',
+                ),
             }),
         );
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
@@ -1040,19 +1109,6 @@ class KodoScope extends Kodo {
     }
 }
 
-function toStorageClass(type?: number): StorageClass {
-    switch (type ?? 0) {
-        case FileType.Standard:
-            return 'Standard';
-        case FileType.InfrequentAccess:
-            return 'InfrequentAccess';
-        case FileType.Glacier:
-            return 'Glacier';
-        default:
-            throw new Error(`Unknown file type: ${type}`);
-    }
-}
-
 function encodeObject(object: StorageObject): string {
     return encodeBucketKey(object.bucket, object.key);
 }
@@ -1137,7 +1193,10 @@ class DeleteObjectOp extends ObjectOp {
 }
 
 class SetObjectStorageClassOp extends ObjectOp {
-    constructor(private readonly object: StorageObject, private readonly storageClass: StorageClass) {
+    constructor(
+        private readonly object: StorageObject,
+        private readonly fileType: StorageClass['fileType'],
+    ) {
         super();
     }
 
@@ -1146,7 +1205,7 @@ class SetObjectStorageClassOp extends ObjectOp {
     }
 
     getOp(): string {
-        return `chtype/${encodeObject(this.object)}/type/${convertStorageClassToFileType(this.storageClass)}`;
+        return `chtype/${encodeObject(this.object)}/type/${this.fileType}`;
     }
 }
 

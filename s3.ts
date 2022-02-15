@@ -498,6 +498,7 @@ export class S3 extends Kodo {
                 data.Contents[0].StorageClass,
                 's3Name',
                 'kodoName',
+                'unknown',
             ),
         };
     }
@@ -837,7 +838,12 @@ export class S3 extends Kodo {
                     key: object.Key!,
                     size: object.Size!,
                     lastModified: object.LastModified!,
-                    storageClass: toStorageClass(object.StorageClass),
+                    storageClass: this.convertStorageClass(
+                        object.StorageClass,
+                        's3Name',
+                        'kodoName',
+                        'unknown',
+                    ),
                 })),
             ];
         }
@@ -1037,18 +1043,6 @@ class S3Scope extends S3 {
         options.stats = this.requestStats;
         return options;
     }
-}
-
-function toStorageClass(storageClass?: AWS.S3.Types.ObjectStorageClass): StorageClass['kodoName'] {
-    const s = (storageClass ?? 'standard').toLowerCase();
-    if (s === 'standard') {
-        return 'Standard';
-    } else if (s.includes('_ia') || s === 'line') {
-        return 'InfrequentAccess';
-    } else if (s === 'glacier') {
-        return 'Glacier';
-    }
-    throw new Error(`Unknown file type: ${storageClass}`);
 }
 
 function parseRestoreInfo(s: string): Map<string, string> {

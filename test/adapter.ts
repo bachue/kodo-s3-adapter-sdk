@@ -28,11 +28,29 @@ process.on('uncaughtException', (err: any, origin: any) => {
         const accessKey = process.env.QINIU_ACCESS_KEY!;
         const secretKey = process.env.QINIU_SECRET_KEY!;
         const originalFileName = '测试文件名.data';
+        const availableStorageClasses = [
+            {
+                fileType: 0,
+                kodoName: 'Standard',
+                s3Name: 'STANDARD',
+            },
+            {
+                fileType: 1,
+                kodoName: 'InfrequentAccess',
+                s3Name: 'LINE',
+            },
+            {
+                fileType: 2,
+                kodoName: 'Archive',
+                s3Name: 'GLACIER',
+            },
+        ];
 
         context('objects operation', () => {
             it('get or getHeaders of unexisted object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
 
                 try {
@@ -51,6 +69,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('moves and copies object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
@@ -109,6 +128,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('moves and copies object by force', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
@@ -139,6 +159,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('moves, copies and deletes objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
@@ -248,6 +269,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('upload object with storage class', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes(1 << 12);
 
@@ -276,15 +298,15 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 }
 
-                // Glacier
+                // Archive
                 {
                     const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
-                    await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key, storageClassName: 'Glacier' }, buffer, originalFileName);
+                    await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key, storageClassName: 'Archive' }, buffer, originalFileName);
 
                     const frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                     expect(frozenInfo.status).to.equal('Frozen');
                     const objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
-                    expect(objectInfo.storageClass).to.equal('Glacier');
+                    expect(objectInfo.storageClass).to.equal('Archive');
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 }
 
@@ -293,12 +315,13 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('set object storage class', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName);
 
-                let frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
+                const frozenInfo = await qiniuAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Normal');
 
                 let objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
@@ -314,6 +337,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('set objects storage class', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
@@ -349,23 +373,24 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('freeze object and restore it', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const kodoAdapter = qiniu.mode(KODO_MODE);
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, buffer, originalFileName);
-                await qiniuAdapter.setObjectStorageClass(bucketRegionId, { bucket: bucketName, key: key }, 'Glacier');
+                await qiniuAdapter.setObjectStorageClass(bucketRegionId, { bucket: bucketName, key: key }, 'Archive');
 
                 let frozenInfo = await kodoAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Frozen');
                 let objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(objectInfo.storageClass).to.equal('Glacier');
+                expect(objectInfo.storageClass).to.equal('Archive');
 
                 await qiniuAdapter.restoreObject(bucketRegionId, { bucket: bucketName, key: key }, 1);
                 frozenInfo = await kodoAdapter.getFrozenInfo(bucketRegionId, { bucket: bucketName, key: key });
                 expect(frozenInfo.status).to.equal('Unfreezing');
                 objectInfo = await qiniuAdapter.getObjectInfo(bucketRegionId, { bucket: bucketName, key: key });
-                expect(objectInfo.storageClass).to.equal('Glacier');
+                expect(objectInfo.storageClass).to.equal('Archive');
 
                 await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
             });
@@ -373,6 +398,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('freeze objects and restore them', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
@@ -388,7 +414,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     });
                 });
                 await Promise.all(uploadPromises);
-                await qiniuAdapter.setObjectsStorageClass(bucketRegionId, bucketName, keys, 'Glacier');
+                await qiniuAdapter.setObjectsStorageClass(bucketRegionId, bucketName, keys, 'Archive');
 
                 {
                     const getAllStorageClassesPromises = keys.map((key) => {
@@ -402,7 +428,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     });
                     const allStorageClasses = await Promise.all(getAllStorageClassesPromises);
                     for (const storageClass of allStorageClasses) {
-                        expect(storageClass).to.equal('Glacier');
+                        expect(storageClass).to.equal('Archive');
                     }
                 }
 
@@ -434,7 +460,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     });
                     const allStorageClasses = await Promise.all(getAllStorageClassesPromises);
                     for (const storageClass of allStorageClasses) {
-                        expect(storageClass).to.equal('Glacier');
+                        expect(storageClass).to.equal('Archive');
                     }
                 }
 
@@ -444,6 +470,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('list objects', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
                 const semaphore = new Semaphore(20);
 
                 const seed = Math.floor(Math.random() * (2 ** 64 - 1));
@@ -493,6 +520,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('uploads and gets object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes(1 << 12);
                 const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
@@ -576,6 +604,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('uploads and gets big object', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const buffer = randomBytes((1 << 20) * 8);
                 const key = `8m-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
@@ -618,6 +647,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('upload data by chunk', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const key = `2m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 const setHeader = { metadata: { 'Key-A': 'Value-A', 'Key-B': 'Value-B' }, contentType: 'application/json' };
@@ -686,6 +716,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('upload object by uploader and download by downloader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const key = `11m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 const tmpfilePath = tempfile();
@@ -779,6 +810,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('upload object and then cancel', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const key = `100m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 const tmpfilePath = tempfile();
@@ -915,6 +947,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('recover object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const key = `11m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 const tmpfilePath = tempfile();
@@ -1020,6 +1053,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
             it('upload small object by uploader', async () => {
                 const qiniu = new Qiniu(accessKey, secretKey);
                 const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
 
                 const key = `11k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                 const tmpfilePath = tempfile();

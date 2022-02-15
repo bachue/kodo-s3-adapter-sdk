@@ -1,5 +1,4 @@
 import http from 'http';
-import { Readable } from 'stream';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import { Throttle } from 'stream-throttle';
 import {
@@ -232,18 +231,10 @@ export class HttpClient {
                             bytesReceived: response.res.size,
                             statusCode: response.status,
                         });
-                        if (response.res instanceof Readable) {
-                            response.res.on('data', (data: Buffer) => {
-                                if (options.stats) {
-                                    options.stats.bytesTotalReceived += data.length;
-                                }
-                            });
-                        } else {
-                            if (options.stats) {
-                                options.stats.bytesTotalSent += reqBody.length;
-                                // @ts-ignore
-                                options.stats.bytesTotalReceived += response.res.size;
-                            }
+                        if (options.stats) {
+                            options.stats.bytesTotalSent += reqBody.length;
+                            // @ts-ignore
+                            options.stats.bytesTotalReceived += response.res.size;
                         }
                         this.uplogBuffer.log(requestUplogEntry).finally(() => {
                             resolve(response);

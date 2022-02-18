@@ -167,7 +167,22 @@ export class S3 extends Kodo {
         apiName: string,
         bucketName?: string,
         key?: string,
-    ): Promise<D> {
+        isCreateStream?: false,
+    ): Promise<D>
+    private async sendS3Request<D, E>(
+        request: AWS.Request<D, E>,
+        apiName: string,
+        bucketName?: string,
+        key?: string,
+        isCreateStream?: true,
+    ): Promise<Readable>
+    private async sendS3Request<D, E>(
+        request: AWS.Request<D, E>,
+        apiName: string,
+        bucketName?: string,
+        key?: string,
+        isCreateStream = false,
+    ): Promise<D | Readable> {
         let requestInfo: RequestInfo | undefined;
         const beginTime = new Date().getTime();
         const uplogMaker = new GenRequestUplogEntry(
@@ -266,6 +281,10 @@ export class S3 extends Kodo {
                 }
             }
         });
+
+        if (isCreateStream) {
+            return request.createReadStream();
+        }
 
         return await new Promise<D>((resolve, reject) => {
             request.send((err, data) => {
@@ -455,7 +474,13 @@ export class S3 extends Kodo {
             Key: object.key,
             Range: range,
         });
-        return request.createReadStream();
+        return this.sendS3Request(
+            request,
+            'getObjectStream',
+            object.bucket,
+            object.key,
+            true,
+        );
     }
 
     async getObjectURL(s3RegionId: string, object: StorageObject, _domain?: Domain, deadline?: Date): Promise<URL> {

@@ -152,6 +152,7 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'getBucketLocation',
+            targetBucket: bucket,
         });
         return await this.regionService.fromKodoRegionIdToS3Id(
             response.data.region,
@@ -228,6 +229,7 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'queryDomain',
+                targetBucket: bucket,
             }),
             this.call({
                 method: 'POST',
@@ -239,6 +241,7 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'queryBucket',
+                targetBucket: bucket,
             }),
             this.call({
                 method: 'GET',
@@ -250,6 +253,7 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'queryDefaultDomain',
+                targetBucket: bucket,
             }),
         ];
 
@@ -401,6 +405,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'putObject',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
     }
 
@@ -421,6 +427,8 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'getObject',
+                targetBucket: object.bucket,
+                targetKey: object.key,
             },
         );
         return {
@@ -454,6 +462,8 @@ export class Kodo implements Adapter {
 
                 // for uplog
                 apiName: 'getObjectStream',
+                targetBucket: object.bucket,
+                targetKey: object.key,
             },
         );
 
@@ -914,6 +924,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'createMultipartUpload',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
         return {
             uploadId: response.data.uploadId,
@@ -962,6 +974,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'uploadPart',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
 
         return { etag: response.data.etag };
@@ -1011,6 +1025,8 @@ export class Kodo implements Adapter {
 
             // for uplog
             apiName: 'completeMultipartUpload',
+            targetBucket: object.bucket,
+            targetKey: object.key,
         });
     }
 

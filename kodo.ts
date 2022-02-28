@@ -732,8 +732,8 @@ export class Kodo implements Adapter {
             targetKey: object.key,
         });
 
-        // lihs: convert to enum
-        if (response.data.type !== 2) {
+        // 2 archive, 3 deep archive
+        if ([2, 3].includes(response.data.type)) {
             return {
                 status: 'Normal',
             };

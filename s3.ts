@@ -736,7 +736,8 @@ export class S3 extends Kodo {
             object.bucket,
             object.key,
         );
-        if (data.StorageClass?.toLowerCase() !== 'glacier') {
+
+        if (!['glacier', 'deep_archive'].includes(data.StorageClass?.toLowerCase())) {
             return { status: 'Normal' };
         }
 

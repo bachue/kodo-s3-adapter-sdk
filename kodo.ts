@@ -733,7 +733,7 @@ export class Kodo implements Adapter {
         });
 
         // 2 archive, 3 deep archive
-        if ([2, 3].includes(response.data.type)) {
+        if (![2, 3].includes(response.data.type)) {
             return {
                 status: 'Normal',
             };

@@ -116,11 +116,19 @@ function calculatePerceptiveSpeed(
         requestsCount: number,
     },
 ): number | undefined {
-    if (sdkApiName === 'downloadFile') {
-        return Math.trunc(options.bytesReceived / options.costDuration);
-    }
-    if (sdkApiName === 'uploadFile') {
-        return Math.trunc(options.bytesSent / options.costDuration);
+    switch (sdkApiName) {
+        case 'downloadFile': {
+            return Math.trunc(options.bytesReceived / options.costDuration);
+        }
+        case 'uploadFile': {
+            return Math.trunc(options.bytesSent / options.costDuration);
+        }
+        case 'getContent': {
+            return Math.trunc(options.bytesSent / options.costDuration);
+        }
+        case 'saveContent': {
+            return Math.trunc(options.bytesSent / options.costDuration);
+        }
     }
     return;
 }

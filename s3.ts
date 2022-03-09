@@ -280,6 +280,7 @@ export class S3 extends Kodo {
                     options.stats.errorDescription = uplog.error_description;
                 }
             }
+            this.log(uplog);
         });
 
         if (isCreateStream) {
@@ -288,13 +289,11 @@ export class S3 extends Kodo {
 
         return await new Promise<D>((resolve, reject) => {
             request.send((err, data) => {
-                this.log(uplog).finally(() => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve(data);
-                    }
-                });
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(data);
+                }
             });
         });
     }

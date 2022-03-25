@@ -164,6 +164,8 @@ export interface ObjectHeader extends SetObjectHeader {
     size: number;
     lastModified: Date;
     metadata: { [key: string]: string; };
+    objectLockMode?: string;
+    objectLockRetainUntilDate?: Date;
 }
 
 export interface ObjectInfo extends StorageObject {

@@ -543,10 +543,22 @@ export class S3 extends Kodo {
             contentType: data.ContentType!,
             lastModified: data.LastModified!,
             metadata: data.Metadata!,
+            objectLockMode: data?.ObjectLockMode,
+            objectLockRetainUntilDate: data?.ObjectLockRetainUntilDate,
         };
     }
 
     async moveObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
+        const res = await this.getObjectHeader(s3RegionId, transferObject.from);
+        if (res?.objectLockMode === 'COMPLIANCE') {
+            if (!res.objectLockRetainUntilDate) {
+                throw new Error('object locked and lost retain date');
+            }
+            if (res.objectLockRetainUntilDate >= new Date()) {
+                throw new Error('object locked');
+            }
+        }
+
         try {
             await this.copyObject(s3RegionId, transferObject);
         } catch (err) {

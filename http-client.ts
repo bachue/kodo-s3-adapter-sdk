@@ -155,7 +155,7 @@ export class HttpClient {
                     stream.on('data', (chunk) => {
                         uploaded += chunk.length;
                         try {
-                            options.uploadProgress!(uploaded, total);
+                            options.uploadProgress?.(uploaded, total);
                         } catch (err) {
                             if (!stream.destroyed) {
                                 stream.destroy(err);

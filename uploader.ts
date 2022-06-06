@@ -4,7 +4,7 @@ import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 export class Uploader {
     private aborted = false;
-    private static readonly userCanceledError = new Error('User Canceled');
+    static readonly userCanceledError = new Error('User Canceled');
 
     constructor(private readonly adapter: Adapter) {
     }
@@ -23,23 +23,26 @@ export class Uploader {
             throw Uploader.userCanceledError;
         }
 
+        // should use multiple parts upload
         const partSize = putFileOption?.partSize ?? (1 << 22);
         const partsCount = partsCountOfFile(fileSize, partSize);
-
-
-        if (putFileOption?.uploadThreshold && fileSize <= putFileOption!.uploadThreshold || partsCount <= 1) {
+        if (putFileOption?.uploadThreshold && fileSize <= putFileOption.uploadThreshold || partsCount <= 1) {
             await this.putObject(region, object, file, fileSize, originalFileName, putFileOption);
             return;
         }
 
+        // init parts
         const recovered = await this.initParts(region, object, originalFileName, putFileOption);
         if (this.aborted) {
             throw Uploader.userCanceledError;
         }
-
-        putFileOption?.putCallback?.partsInitCallback?.(recovered);
-
+        putFileOption?.putCallback?.partsInitCallback?.({
+            uploadId: recovered.uploadId,
+            parts: recovered.parts.map(p => ({ ...p })), // deep copy in case of changed outer
+        });
         const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
+
+        // upload parts
         await this.uploadParts(
             region,
             object,
@@ -112,7 +115,7 @@ export class Uploader {
     ): Promise<RecoveredOption> {
         const recovered: RecoveredOption = { uploadId: '', parts: [] };
 
-        if (putFileOption?.recovered && checkParts(putFileOption.recovered.parts)) {
+        if (putFileOption?.recovered?.uploadId && checkParts(putFileOption.recovered.parts)) {
             recovered.uploadId = putFileOption.recovered.uploadId;
             recovered.parts = recovered.parts.concat(putFileOption.recovered.parts);
             return recovered;
@@ -177,7 +180,7 @@ export class Uploader {
         let progressCallback: ProgressCallback | undefined;
         if (putFileOption.putCallback?.progressCallback) {
             progressCallback = (partUploaded: number, _partTotal: number) => {
-                putFileOption.putCallback!.progressCallback!(uploaded + partUploaded, fileSize);
+                putFileOption.putCallback?.progressCallback?.(uploaded + partUploaded, fileSize);
             };
         }
         const output = await this.adapter.uploadPart(
@@ -244,7 +247,7 @@ function checkParts(parts: Part[]): boolean {
 }
 
 function findPartsByNumber(parts: Part[], partNumber: number): Part | undefined {
-    return parts.find((part) => part.partNumber === partNumber);
+    return parts.find((part) => part?.partNumber === partNumber);
 }
 
 function partsCountOfFile(fileSize: number, partSize: number): number {

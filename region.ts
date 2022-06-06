@@ -60,7 +60,7 @@ export class Region {
     ) {}
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/regions`);
         const uplogBuffer = new UplogBuffer({
             bufferSize: options.uplogBufferSize,
@@ -99,7 +99,7 @@ export class Region {
     }
 
     static getAll(options: GetAllOptions): Promise<Region[]> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
 
         return Region.requestAll(options)
             .then((response) => {
@@ -136,7 +136,7 @@ export class Region {
     }
 
     static query(options: QueryOptions): Promise<Region> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/v4/query`);
         requestURL.searchParams.append('ak', options.accessKey);
         requestURL.searchParams.append('bucket', options.bucketName);

@@ -425,7 +425,7 @@ export class S3 extends Kodo {
         const uploader = s3.putObject(params);
         if (option?.progressCallback) {
             uploader.on('httpUploadProgress', (progress) => {
-                option.progressCallback!(progress.loaded, progress.total);
+                option.progressCallback?.(progress.loaded, progress.total);
             });
         }
 

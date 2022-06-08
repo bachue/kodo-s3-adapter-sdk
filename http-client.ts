@@ -11,7 +11,7 @@ import {
 import FormData from 'form-data';
 import { ReadableStreamBuffer } from 'stream-buffers';
 import { RequestInfo, ResponseInfo } from './adapter';
-import { generateAccessTokenV2 } from './kodo-auth';
+import { generateAccessTokenV2, getXQiniuDate } from './kodo-auth';
 import { generateReqId } from './req_id';
 
 export interface HttpClientOptions {
@@ -24,6 +24,8 @@ export interface HttpClientOptions {
     retryDelay?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
+
+    disableQiniuTimestampSignature?: boolean,
 
     // for uplog
     apiType: 's3' | 'kodo',
@@ -155,7 +157,7 @@ export class HttpClient {
                     stream.on('data', (chunk) => {
                         uploaded += chunk.length;
                         try {
-                            options.uploadProgress!(uploaded, total);
+                            options.uploadProgress?.(uploaded, total);
                         } catch (err) {
                             if (!stream.destroyed) {
                                 stream.destroy(err);
@@ -373,9 +375,20 @@ export class HttpClient {
             data = options.data.toString();
         }
 
+        if (!this.clientOptions.disableQiniuTimestampSignature) {
+            options.headers = options.headers ?? {};
+            options.headers['X-Qiniu-Date'] = getXQiniuDate();
+        }
+
         return generateAccessTokenV2(
-            this.clientOptions.accessKey, this.clientOptions.secretKey!, url.toString(),
-            options.method ?? 'GET', options.contentType, data);
+            this.clientOptions.accessKey,
+            this.clientOptions.secretKey!,
+            url.toString(),
+            options.method ?? 'GET',
+            options.contentType,
+            options.headers,
+            data,
+        );
     }
 
     private isRetry(response: HttpClientResponse<any>): boolean {

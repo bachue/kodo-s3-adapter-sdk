@@ -1,7 +1,6 @@
 import os from 'os';
 import { HttpClientResponse } from 'urllib';
 import pkg from './package.json';
-import { generateAccessTokenV2 } from './kodo-auth';
 import { RequestInfo, ResponseInfo } from './adapter';
 import { UplogBuffer } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
@@ -24,6 +23,7 @@ interface RequestOptions extends RegionRequestOptions {
     uplogBufferSize?: number;
     requestCallback?: (request: RequestInfo) => void;
     responseCallback?: (response: ResponseInfo) => void;
+    disableQiniuTimestampSignature?: boolean,
 }
 
 export interface GetAllOptions extends RequestOptions {
@@ -60,7 +60,7 @@ export class Region {
     ) {}
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/regions`);
         const uplogBuffer = new UplogBuffer({
             bufferSize: options.uplogBufferSize,
@@ -78,28 +78,21 @@ export class Region {
             apiType: 'kodo',
             appName: options.appName,
             appVersion: options.appVersion,
+            disableQiniuTimestampSignature: options.disableQiniuTimestampSignature,
         }, uplogBuffer);
 
         return httpClient.call([requestURL.toString()], {
             fullUrl: true,
-            appendAuthorization: false,
+            appendAuthorization: true,
             method: 'GET',
             dataType: 'json',
-            headers: {
-                'authorization': generateAccessTokenV2(
-                    options.accessKey,
-                    options.secretKey,
-                    requestURL.toString(),
-                    'GET'
-                ),
-            },
             stats: options.stats,
             apiName: 'getAllRegion',
         });
     }
 
     static getAll(options: GetAllOptions): Promise<Region[]> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
 
         return Region.requestAll(options)
             .then((response) => {
@@ -136,7 +129,7 @@ export class Region {
     }
 
     static query(options: QueryOptions): Promise<Region> {
-        const ucUrl: string = options.ucUrl ?? DEFAULT_UC_URL;
+        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const requestURL = new URL(`${ucUrl}/v4/query`);
         requestURL.searchParams.append('ak', options.accessKey);
         requestURL.searchParams.append('bucket', options.bucketName);

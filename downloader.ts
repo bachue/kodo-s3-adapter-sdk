@@ -7,7 +7,7 @@ const DEFAULT_RETRIES_ON_SAME_OFFSET = 10;
 
 export class Downloader {
     private aborted = false;
-    private static readonly userCanceledError = new Error('User Canceled');
+    static readonly userCanceledError = new Error('User Canceled');
 
     constructor(private readonly adapter: Adapter) {
     }
@@ -145,7 +145,6 @@ export class Downloader {
                             reader.destroy(Downloader.userCanceledError);
                         }
                         reject(Downloader.userCanceledError);
-                        this.abort();
                         return;
                     }
 

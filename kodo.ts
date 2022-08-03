@@ -385,7 +385,11 @@ export class Kodo implements Adapter {
                 form.append(`x-qn-meta-${metaKey}`, metaValue);
             }
         }
-        form.append('crc32', CRC32.unsigned(data));
+        if (option?.crc32) {
+            form.append('crc32', option.crc32);
+        } else {
+            form.append('crc32', CRC32.unsigned(data));
+        }
 
         const fileOption: FormData.AppendOptions = {
             filename: originalFileName,
@@ -402,6 +406,7 @@ export class Kodo implements Adapter {
             form,
             uploadProgress: option?.progressCallback,
             uploadThrottle: option?.throttle,
+            appendAuthorization: false,
 
             // for uplog
             apiName: 'putObject',
@@ -971,6 +976,7 @@ export class Kodo implements Adapter {
             },
             uploadProgress: option?.progressCallback,
             uploadThrottle: option?.throttle,
+            appendAuthorization: false,
 
             // for uplog
             apiName: 'uploadPart',

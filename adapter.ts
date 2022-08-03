@@ -190,6 +190,7 @@ export interface Part {
 export interface PutObjectOption {
     progressCallback?: ProgressCallback;
     throttle?: Throttle;
+    crc32?: string,
 }
 
 export interface GetObjectStreamOption {

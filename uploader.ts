@@ -103,6 +103,7 @@ export class Uploader {
             {
                 progressCallback: putFileOption?.putCallback?.progressCallback,
                 throttle,
+                crc32: putFileOption?.crc32,
             },
         );
     }
@@ -180,6 +181,9 @@ export class Uploader {
         let progressCallback: ProgressCallback | undefined;
         if (putFileOption.putCallback?.progressCallback) {
             progressCallback = (partUploaded: number, _partTotal: number) => {
+                if (this.aborted) {
+                    throw Uploader.userCanceledError;
+                }
                 putFileOption.putCallback?.progressCallback?.(uploaded + partUploaded, fileSize);
             };
         }
@@ -194,6 +198,9 @@ export class Uploader {
                 throttle: makeThrottle(),
             },
         );
+        if (this.aborted) {
+            throw Uploader.userCanceledError;
+        }
 
         data = undefined;
         const part: Part = { etag: output.etag, partNumber };
@@ -229,6 +236,7 @@ export interface PutFileOption {
     uploadThreshold?: number;
     uploadThrottleGroup?: ThrottleGroup;
     uploadThrottleOption?: ThrottleOptions;
+    crc32?: string;
 }
 
 export interface RecoveredOption {

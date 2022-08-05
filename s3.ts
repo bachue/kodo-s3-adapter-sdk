@@ -973,6 +973,8 @@ export class S3 extends Kodo {
         };
         const uploader = s3.uploadPart(params);
         if (option?.progressCallback) {
+            // this will be not working as expected in NodeJS
+            // https://github.com/aws/aws-sdk-js/issues/1323
             uploader.on('httpUploadProgress', (progress) => {
                 option.progressCallback!(progress.loaded, progress.total);
             });

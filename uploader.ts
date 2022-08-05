@@ -182,7 +182,7 @@ export class Uploader {
         if (putFileOption.putCallback?.progressCallback) {
             progressCallback = (partUploaded: number, _partTotal: number) => {
                 if (this.aborted) {
-                    throw Uploader.userCanceledError;
+                    return;
                 }
                 putFileOption.putCallback?.progressCallback?.(uploaded + partUploaded, fileSize);
             };

@@ -385,7 +385,7 @@ export class S3 extends Kodo {
         s3RegionId: string,
         object: StorageObject,
         data: Buffer,
-        originalFileName: string,
+        _originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
     ): Promise<void> {
@@ -415,7 +415,6 @@ export class S3 extends Kodo {
             ContentType: header?.contentType,
             ContentMD5: md5.base64(data),
             Metadata: header?.metadata,
-            ContentDisposition: makeContentDisposition(originalFileName),
             StorageClass: this.convertStorageClass(
                 object.storageClassName,
                 'kodoName',
@@ -924,7 +923,7 @@ export class S3 extends Kodo {
     async createMultipartUpload(
         s3RegionId: string,
         object: StorageObject,
-        originalFileName: string,
+        _originalFileName: string,
         header?: SetObjectHeader,
     ): Promise<InitPartsOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
@@ -932,7 +931,6 @@ export class S3 extends Kodo {
             Bucket: bucketId,
             Key: object.key,
             Metadata: header?.metadata,
-            ContentDisposition: makeContentDisposition(originalFileName),
             ContentType: header?.contentType,
         });
         const data: any = await this.sendS3Request(request, 'createMultipartUpload', object.bucket, object.key);
@@ -1096,10 +1094,6 @@ function parseRestoreInfo(s: string): Map<string, string> {
         });
     }
     return result;
-}
-
-function makeContentDisposition(originalFileName: string): string {
-    return `attachment; filename*=utf-8''${encodeURIComponent(originalFileName)}`;
 }
 
 abstract class ObjectOp {

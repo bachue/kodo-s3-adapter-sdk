@@ -101,7 +101,12 @@ export class Uploader {
             originalFileName,
             putFileOption?.header,
             {
-                progressCallback: putFileOption?.putCallback?.progressCallback,
+                progressCallback: (uploaded: number, total: number) => {
+                    if (this.aborted) {
+                        throw Uploader.userCanceledError;
+                    }
+                    putFileOption?.putCallback?.progressCallback?.(uploaded, total);
+                },
                 throttle,
                 crc32: putFileOption?.crc32,
             },

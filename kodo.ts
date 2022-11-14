@@ -765,6 +765,9 @@ export class Kodo implements Adapter {
         }
         return {
             status: 'Unfrozen',
+            expiryDate: !isNaN(response.data.restoreExpiration)
+                ? new Date(response.data.restoreExpiration * 1000)
+                : undefined,
         };
     }
 

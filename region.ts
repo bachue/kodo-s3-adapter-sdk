@@ -33,16 +33,12 @@ export interface QueryOptions extends RequestOptions {
     bucketName: string;
 }
 
-export interface RegionWithStorageClasses {
-    regionId: string,
-    regionS3Id: string,
-    storageClasses: {
-        fileType: number,
-        kodoName: string,
-        s3Name: string,
-        billingI18n: Record<string, string>,
-        nameI18n: Record<string, string>,
-    }[],
+export interface RegionStorageClass {
+    fileType: number,
+    kodoName: string,
+    s3Name: string,
+    billingI18n: Record<string, string>,
+    nameI18n: Record<string, string>,
 }
 
 export class Region {
@@ -56,7 +52,8 @@ export class Region {
         readonly id: string,
         readonly s3Id: string,
         readonly label?: string,
-        readonly translatedLabels?: { [lang: string]: string; }
+        readonly translatedLabels: { [lang: string]: string; } = {},
+        readonly storageClasses: RegionStorageClass[] = [],
     ) {}
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
@@ -100,32 +97,6 @@ export class Region {
                 const regions: Region[] = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
                 return regions;
             });
-    }
-
-    static getAllRegionsStorageClasses(options: GetAllOptions): Promise<RegionWithStorageClasses[]> {
-        return Region.requestAll(options)
-            .then(
-                (response) => {
-                    response.data.regions ??= [];
-                    return response.data.regions.map((r: any) => ({
-                        regionId: r.id,
-                        regionS3Id: r.s3.region_alias,
-                        storageClasses: r?.extra?.file_types?.map((t: any) => ({
-                            fileType: t.file_type,
-                            kodoName: t.storage_class,
-                            s3Name: t.s3_storage_class,
-                            billingI18n: t.billing_i18n,
-                            nameI18n: t.name_i18n,
-                        })) ?? [],
-                    }));
-                },
-                (statusMessage?: string) => {
-                    if (statusMessage === 'Not found') {
-                        return Promise.resolve([]);
-                    }
-                    return Promise.reject(statusMessage);
-                }
-            );
     }
 
     static query(options: QueryOptions): Promise<Region> {
@@ -183,7 +154,21 @@ export class Region {
             }
         }
 
-        const region: Region = new Region(r.region ?? r.id, r.s3.region_alias, r.description, translatedDescriptions);
+        const storageClasses = r?.extra?.file_types?.map((t: any) => ({
+            fileType: t.file_type,
+            kodoName: t.storage_class,
+            s3Name: t.s3_storage_class,
+            billingI18n: t.billing_i18n,
+            nameI18n: t.name_i18n,
+        })) ?? [];
+
+        const region: Region = new Region(
+            r.region ?? r.id,
+            r.s3.region_alias,
+            r.description,
+            translatedDescriptions,
+            storageClasses,
+        );
         const domain2Url = (domain: string) => {
             const url = new URL(ucUrl);
             return new URL(`${url.protocol}//${domain}`).toString();

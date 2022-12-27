@@ -1,6 +1,6 @@
 {
   "name": "kodo-s3-adapter-sdk",
-  "version": "0.2.36",
+  "version": "0.2.37",
   "description": "Adapter for Kodo & S3 API",
   "main": "dist/index.js",
   "repository": "github.com/bachue/kodo-s3-adapter-sdk",
@@ -14,6 +14,7 @@
     "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\"}' mocha --timeout 600000 -b -r ts-node/register -j 1 test/**/*.ts"
   },
   "dependencies": {
+    "agentkeepalive": "^4.2.1",
     "async-lock": "^1.2.4",
     "aws-sdk": "^2.800.0",
     "buffer-crc32": "^0.2.13",

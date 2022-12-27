@@ -1,5 +1,6 @@
 import http from 'http';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
+import Agent from 'agentkeepalive';
 import { Throttle } from 'stream-throttle';
 import {
     ErrorType,
@@ -67,7 +68,14 @@ export interface URLRequestOptions {
 }
 
 export class HttpClient {
-    private static readonly httpClient: HttpClient2 = new HttpClient2();
+    private static readonly httpKeepaliveAgent = new Agent();
+    private static readonly httpsKeepaliveAgent = new Agent.HttpsAgent();
+    private static readonly httpClient: HttpClient2 = new HttpClient2({
+        // urllib index.d.ts not support agent and httpsAgent
+        // @ts-ignore
+        agent: HttpClient.httpKeepaliveAgent,
+        httpsAgent: HttpClient.httpsKeepaliveAgent,
+    });
 
     constructor(
         private readonly clientOptions: HttpClientOptions,

@@ -90,6 +90,9 @@ export class S3 extends Kodo {
                 httpOptions: {
                     connectTimeout: 30000,
                     timeout: 300000,
+                    agent: s3IdEndpoint.s3Endpoint.startsWith('https://')
+                        ? HttpClient.httpsKeepaliveAgent
+                        : HttpClient.httpKeepaliveAgent,
                 }
             });
         });

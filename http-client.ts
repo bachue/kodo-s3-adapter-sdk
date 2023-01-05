@@ -1,4 +1,5 @@
 import http from 'http';
+import fs from 'fs';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import Agent from 'agentkeepalive';
 import { Throttle } from 'stream-throttle';
@@ -69,7 +70,16 @@ export interface URLRequestOptions {
 
 export class HttpClient {
     private static readonly httpKeepaliveAgent = new Agent();
-    private static readonly httpsKeepaliveAgent = new Agent.HttpsAgent();
+    private static readonly httpsKeepaliveAgent = (() => {
+        const httpsAgent = new Agent.HttpsAgent();
+        // @ts-ignore
+        httpsAgent.on('keylog', (line: string) => {
+            if (process.env.SSLKEYLOGFILE) {
+                fs.appendFileSync(process.env.SSLKEYLOGFILE, line, { mode: 0o600 });
+            }
+        });
+        return httpsAgent;
+    })();
     private static readonly httpClient: HttpClient2 = new HttpClient2({
         // urllib index.d.ts not support agent and httpsAgent
         // @ts-ignore

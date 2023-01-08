@@ -1140,7 +1140,7 @@ function encodeObject(object: StorageObject): string {
 
 function encodeBucketKey(bucket: string, key?: string): string {
     let data: string = bucket;
-    if (key) {
+    if (key !== undefined) {
         data += `:${key}`;
     }
     return urlSafeBase64(data);

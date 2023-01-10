@@ -60,6 +60,7 @@ export interface URLRequestOptions {
     headers?: { [headerName: string]: string; },
     uploadProgress?: (uploaded: number, total: number) => void,
     uploadThrottle?: Throttle,
+    abortSignal?: AbortSignal,
     stats?: RequestStats,
 
     // uplog
@@ -69,8 +70,10 @@ export interface URLRequestOptions {
 }
 
 export class HttpClient {
-    private static readonly httpKeepaliveAgent = new Agent();
-    private static readonly httpsKeepaliveAgent = (() => {
+    static readonly userCanceledError = new Error('User Canceled');
+    static readonly urlEmptyError = new Error('URL Empty');
+    static readonly httpKeepaliveAgent = new Agent();
+    static readonly httpsKeepaliveAgent = (() => {
         const httpsAgent = new Agent.HttpsAgent();
         // @ts-ignore
         httpsAgent.on('keylog', (line: string) => {
@@ -93,10 +96,15 @@ export class HttpClient {
     }
 
     call<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        // check aborted
+        if (options.abortSignal?.aborted) {
+            return Promise.reject(HttpClient.userCanceledError);
+        }
+
         // check url
         const urlString: string | undefined = urls.shift();
         if (!urlString) {
-            return Promise.reject(new Error('urls is empty'));
+            return Promise.reject(HttpClient.urlEmptyError);
         }
         let url: URL;
         if (options.fullUrl ?? false) {
@@ -150,7 +158,12 @@ export class HttpClient {
                 streaming: options.streaming,
                 retry: this.clientOptions.retry,
                 retryDelay: this.clientOptions.retryDelay,
-                isRetry: this.isRetry,
+                isRetry: (res) => {
+                    if (options.abortSignal?.aborted) {
+                        return false;
+                    }
+                    return this.isRetry(res);
+                },
                 beforeRequest: (info) => {
                     if (options.stats) {
                         options.stats.requestsCount += 1;
@@ -161,6 +174,9 @@ export class HttpClient {
                         headers: info.headers,
                         data,
                     };
+                    if (options.abortSignal) {
+                        info.signal = options.abortSignal;
+                    }
                     this.clientOptions.requestCallback?.(requestInfo);
                 },
             };
@@ -174,16 +190,7 @@ export class HttpClient {
                     const total = data.length;
                     stream.on('data', (chunk) => {
                         uploaded += chunk.length;
-                        try {
-                            options.uploadProgress?.(uploaded, total);
-                        } catch (err) {
-                            if (!stream.destroyed) {
-                                stream.destroy(err);
-                            }
-                            callbackError = err;
-
-                            reject(err);
-                        }
+                        options.uploadProgress?.(uploaded, total);
                     });
                     if (options.uploadThrottle) {
                         requestOption.stream = stream.pipe(options.uploadThrottle);

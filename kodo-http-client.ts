@@ -27,6 +27,7 @@ export interface RequestOptions {
     headers?: { [headerName: string]: string; },
     uploadProgress?: (uploaded: number, total: number) => void,
     uploadThrottle?: Throttle,
+    abortSignal?: AbortSignal,
     stats?: RequestStats,
     appendAuthorization?: boolean,
 
@@ -81,6 +82,7 @@ export class KodoHttpClient {
             uploadThrottle: options.uploadThrottle,
             stats: options.stats,
             appendAuthorization: options.appendAuthorization,
+            abortSignal: options.abortSignal,
 
             // for uplog
             apiName: options.apiName,

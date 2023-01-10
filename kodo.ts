@@ -407,6 +407,7 @@ export class Kodo implements Adapter {
             uploadProgress: option?.progressCallback,
             uploadThrottle: option?.throttle,
             appendAuthorization: false,
+            abortSignal: option?.abortSignal,
 
             // for uplog
             apiName: 'putObject',
@@ -903,7 +904,13 @@ export class Kodo implements Adapter {
         return results;
     }
 
-    async createMultipartUpload(s3RegionId: string, object: StorageObject, _originalFileName: string, _header?: SetObjectHeader): Promise<InitPartsOutput> {
+    async createMultipartUpload(
+        s3RegionId: string,
+        object: StorageObject,
+        _originalFileName: string,
+        _header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
+    ): Promise<InitPartsOutput> {
         const token = makeUploadToken(
             this.adapterOption.accessKey,
             this.adapterOption.secretKey,
@@ -929,6 +936,7 @@ export class Kodo implements Adapter {
             s3RegionId,
             contentType: 'application/x-www-form-urlencoded',
             headers: { 'authorization': `UpToken ${token}` },
+            abortSignal,
 
             // for uplog
             apiName: 'createMultipartUpload',
@@ -980,6 +988,7 @@ export class Kodo implements Adapter {
             uploadProgress: option?.progressCallback,
             uploadThrottle: option?.throttle,
             appendAuthorization: false,
+            abortSignal: option?.abortSignal,
 
             // for uplog
             apiName: 'uploadPart',
@@ -997,6 +1006,7 @@ export class Kodo implements Adapter {
         parts: Part[],
         originalFileName: string,
         header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
     ): Promise<void> {
         const token = makeUploadToken(
             this.adapterOption.accessKey,
@@ -1031,6 +1041,7 @@ export class Kodo implements Adapter {
             dataType: 'json',
             s3RegionId,
             headers: { 'authorization': `UpToken ${token}` },
+            abortSignal,
 
             // for uplog
             apiName: 'completeMultipartUpload',

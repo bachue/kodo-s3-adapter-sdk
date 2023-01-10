@@ -46,7 +46,7 @@ import {
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
-import { RequestStats } from './http-client';
+import { HttpClient, RequestStats } from './http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
 
@@ -54,6 +54,7 @@ export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os
 
 interface RequestOptions {
     stats?: RequestStats,
+    abortSignal?: AbortSignal,
 }
 
 export class S3 extends Kodo {
@@ -171,6 +172,7 @@ export class S3 extends Kodo {
         bucketName?: string,
         key?: string,
         isCreateStream?: false,
+        options?: RequestOptions,
     ): Promise<D>
     private async sendS3Request<D, E>(
         request: AWS.Request<D, E>,
@@ -178,6 +180,7 @@ export class S3 extends Kodo {
         bucketName?: string,
         key?: string,
         isCreateStream?: true,
+        options?: RequestOptions,
     ): Promise<Readable>
     private async sendS3Request<D, E>(
         request: AWS.Request<D, E>,
@@ -185,6 +188,7 @@ export class S3 extends Kodo {
         bucketName?: string,
         key?: string,
         isCreateStream = false,
+        options: RequestOptions = {},
     ): Promise<D | Readable> {
         let requestInfo: RequestInfo | undefined;
         const beginTime = new Date().getTime();
@@ -211,7 +215,15 @@ export class S3 extends Kodo {
         });
         request.httpRequest.headers['X-Reqid'] = reqId;
 
-        const options = this.getRequestsOption();
+        options = {
+            ...options,
+            /**
+             * for uplog with {@link S3Scope}
+             **/
+            ...this.getRequestsOption(),
+        };
+
+        // for uplog remoteAddress
         const remoteAddress = await new Promise<string>(resolve => {
             dns.lookup(request.httpRequest.endpoint.hostname, (err, address) => {
                 if (err) {
@@ -222,6 +234,19 @@ export class S3 extends Kodo {
             });
         });
 
+        // abort option
+        if (options.abortSignal) {
+            if (options.abortSignal.aborted) {
+                return Promise.reject(HttpClient.userCanceledError);
+            }
+            options.abortSignal.addEventListener('abort', () => {
+                request.abort();
+            }, {
+                once: true,
+            });
+        }
+
+        // request events
         request.on('sign', (request) => {
             if (options.stats) {
                 options.stats.requestsCount += 1;
@@ -293,7 +318,11 @@ export class S3 extends Kodo {
         return await new Promise<D>((resolve, reject) => {
             request.send((err, data) => {
                 if (err) {
-                    reject(err);
+                    if (options.abortSignal?.aborted) {
+                        reject(HttpClient.userCanceledError);
+                    } else {
+                        reject(err);
+                    }
                 } else {
                     resolve(data);
                 }
@@ -431,7 +460,16 @@ export class S3 extends Kodo {
             });
         }
 
-        await this.sendS3Request(uploader, 'putObject', object.bucket, object.key);
+        await this.sendS3Request(
+            uploader,
+            'putObject',
+            object.bucket,
+            object.key,
+            false,
+            {
+                abortSignal: option?.abortSignal,
+            },
+        );
     }
 
     async getObject(
@@ -928,6 +966,7 @@ export class S3 extends Kodo {
         object: StorageObject,
         _originalFileName: string,
         header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
     ): Promise<InitPartsOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
         const request = s3.createMultipartUpload({
@@ -936,7 +975,16 @@ export class S3 extends Kodo {
             Metadata: header?.metadata,
             ContentType: header?.contentType,
         });
-        const data: any = await this.sendS3Request(request, 'createMultipartUpload', object.bucket, object.key);
+        const data: any = await this.sendS3Request(
+            request,
+            'createMultipartUpload',
+            object.bucket,
+            object.key,
+            false,
+            {
+                abortSignal,
+            },
+        );
         return { uploadId: data.UploadId! };
     }
 
@@ -980,7 +1028,16 @@ export class S3 extends Kodo {
                 option.progressCallback!(progress.loaded, progress.total);
             });
         }
-        const respond: any = await this.sendS3Request(uploader, 'uploadPart', object.bucket, object.key);
+        const respond: any = await this.sendS3Request(
+            uploader,
+            'uploadPart',
+            object.bucket,
+            object.key,
+            false,
+            {
+                abortSignal: option?.abortSignal,
+            },
+        );
         return { etag: respond.ETag! };
     }
 
@@ -991,6 +1048,7 @@ export class S3 extends Kodo {
         parts: Part[],
         _originalFileName: string,
         _header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
     ): Promise<void> {
         const [s3, bucketId] = await Promise.all([
             this.getClient(s3RegionId),
@@ -1007,7 +1065,16 @@ export class S3 extends Kodo {
                 })),
             },
         });
-        await this.sendS3Request(request, 'completeMultipartUpload', object.bucket, object.key);
+        await this.sendS3Request(
+            request,
+            'completeMultipartUpload',
+            object.bucket,
+            object.key,
+            false,
+            {
+                abortSignal,
+            },
+        );
     }
 
     clearCache() {

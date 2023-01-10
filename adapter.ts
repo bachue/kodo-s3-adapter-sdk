@@ -34,13 +34,38 @@ export abstract class Adapter {
     abstract getObject(region: string, object: StorageObject, domain?: Domain): Promise<ObjectGetResult>;
     abstract getObjectURL(region: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL>;
     abstract getObjectStream(s3RegionId: string, object: StorageObject, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable>;
-    abstract putObject(region: string, object: StorageObject, data: Buffer, originalFileName: string,
-                       header?: SetObjectHeader, option?: PutObjectOption): Promise<void>;
-
-    abstract createMultipartUpload(region: string, object: StorageObject, originalFileName: string, header?: SetObjectHeader): Promise<InitPartsOutput>;
-    abstract uploadPart(region: string, object: StorageObject, uploadId: string, partNumber: number,
-                        data: Buffer, option?: PutObjectOption): Promise<UploadPartOutput>;
-    abstract completeMultipartUpload(region: string, object: StorageObject, uploadId: string, parts: Part[], originalFileName: string, header?: SetObjectHeader): Promise<void>;
+    abstract putObject(
+        region: string,
+        object: StorageObject,
+        data: Buffer,
+        originalFileName: string,
+        header?: SetObjectHeader,
+        option?: PutObjectOption,
+    ): Promise<void>;
+    abstract createMultipartUpload(
+        region: string,
+        object: StorageObject,
+        originalFileName: string,
+        header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
+    ): Promise<InitPartsOutput>;
+    abstract uploadPart(
+        region: string,
+        object: StorageObject,
+        uploadId: string,
+        partNumber: number,
+        data: Buffer,
+        option?: PutObjectOption,
+    ): Promise<UploadPartOutput>;
+    abstract completeMultipartUpload(
+        region: string,
+        object: StorageObject,
+        uploadId: string,
+        parts: Part[],
+        originalFileName: string,
+        header?: SetObjectHeader,
+        abortSignal?: AbortSignal,
+    ): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
 
@@ -191,6 +216,7 @@ export interface PutObjectOption {
     progressCallback?: ProgressCallback;
     throttle?: Throttle;
     crc32?: string,
+    abortSignal?: AbortSignal,
 }
 
 export interface GetObjectStreamOption {

@@ -1,10 +1,11 @@
+import { HttpClient } from './http-client';
 import { Adapter, Part, ProgressCallback, SetObjectHeader, StorageObject } from './adapter';
 import { FileHandle } from 'fs/promises';
 import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 export class Uploader {
-    private aborted = false;
     static readonly userCanceledError = new Error('User Canceled');
+    private abortController?: AbortController;
 
     constructor(private readonly adapter: Adapter) {
     }
@@ -17,61 +18,69 @@ export class Uploader {
         originalFileName: string,
         putFileOption?: PutFileOption,
     ): Promise<void> {
-        this.aborted = false;
+        this.abortController = new AbortController();
 
         if (this.aborted) {
             throw Uploader.userCanceledError;
         }
 
-        // should use multiple parts upload
-        const partSize = putFileOption?.partSize ?? (1 << 22);
-        const partsCount = partsCountOfFile(fileSize, partSize);
-        if (putFileOption?.uploadThreshold && fileSize <= putFileOption.uploadThreshold || partsCount <= 1) {
-            await this.putObject(region, object, file, fileSize, originalFileName, putFileOption);
-            return;
-        }
+        try {
+            // should use form upload
+            const partSize = putFileOption?.partSize ?? (1 << 22);
+            const partsCount = partsCountOfFile(fileSize, partSize);
+            if (putFileOption?.uploadThreshold && fileSize <= putFileOption.uploadThreshold || partsCount <= 1) {
+                await this.putObject(region, object, file, fileSize, originalFileName, putFileOption);
+                return;
+            }
 
-        // init parts
-        const recovered = await this.initParts(region, object, originalFileName, putFileOption);
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
-        putFileOption?.putCallback?.partsInitCallback?.({
-            uploadId: recovered.uploadId,
-            parts: recovered.parts.map(p => ({ ...p })), // deep copy in case of changed outer
-        });
-        const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
+            // should use multiple parts upload
+            // init parts
+            const recovered = await this.initParts(region, object, originalFileName, putFileOption);
+            putFileOption?.putCallback?.partsInitCallback?.({
+                uploadId: recovered.uploadId,
+                parts: recovered.parts.map(p => ({ ...p })), // deep copy in case of changed outer
+            });
+            const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
 
-        // upload parts
-        await this.uploadParts(
-            region,
-            object,
-            file,
-            fileSize,
-            uploaded,
-            recovered,
-            1,
-            partsCount,
-            partSize,
-            putFileOption || {},
-        );
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
+            // upload parts
+            await this.uploadParts(
+                region,
+                object,
+                file,
+                fileSize,
+                uploaded,
+                recovered,
+                1,
+                partsCount,
+                partSize,
+                putFileOption || {},
+            );
 
-        recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
-        await this.adapter.completeMultipartUpload(
-            region,
-            object,
-            recovered.uploadId,
-            recovered.parts,
-            originalFileName,
-            putFileOption?.header,
-        );
+            recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
+            await this.adapter.completeMultipartUpload(
+                region,
+                object,
+                recovered.uploadId,
+                recovered.parts,
+                originalFileName,
+                putFileOption?.header,
+                this.abortController.signal,
+            );
+        } catch (e) {
+            if (e === HttpClient.userCanceledError) {
+                throw Uploader.userCanceledError;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    private get aborted(): boolean {
+        return this.abortController?.signal.aborted ?? false;
     }
 
     abort(): void {
-        this.aborted = true;
+        this.abortController?.abort();
     }
 
     private async putObject(
@@ -119,6 +128,10 @@ export class Uploader {
         originalFileName: string,
         putFileOption?: PutFileOption,
     ): Promise<RecoveredOption> {
+        if (this.aborted) {
+            throw Uploader.userCanceledError;
+        }
+
         const recovered: RecoveredOption = { uploadId: '', parts: [] };
 
         if (putFileOption?.recovered?.uploadId && checkParts(putFileOption.recovered.parts)) {
@@ -201,6 +214,7 @@ export class Uploader {
             {
                 progressCallback,
                 throttle: makeThrottle(),
+                abortSignal: this.abortController?.signal,
             },
         );
         if (this.aborted) {

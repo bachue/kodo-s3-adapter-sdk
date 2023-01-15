@@ -5,7 +5,7 @@ import os from 'os';
 import pkg from './package.json';
 import md5 from 'js-md5';
 import { URL } from 'url';
-import { Readable } from 'stream';
+import { Readable, Writable } from 'stream';
 import { Semaphore } from 'semaphore-promise';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
@@ -426,19 +426,14 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
 
-        let dataSource: Readable | Buffer;
-        if (this.adapterOption.ucUrl?.startsWith('https://') ?? true) {
-            const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-            reader.put(data);
-            reader.stop();
-            if (option?.throttle) {
-                dataSource = reader.pipe(option.throttle);
-            } else {
-                dataSource = reader;
-            }
-        } else {
-            dataSource = data;
-        }
+        // get data source for http body
+        const dataSource = S3.getDataSource(
+            data,
+            s3.endpoint.protocol,
+            option,
+        );
+
+        // get put object params
         const params: AWS.S3.Types.PutObjectRequest = {
             Bucket: bucketId,
             Key: object.key,
@@ -454,6 +449,8 @@ export class S3 extends Kodo {
             ),
         };
         const uploader = s3.putObject(params);
+
+        // progress callback
         if (option?.progressCallback) {
             uploader.on('httpUploadProgress', (progress) => {
                 option.progressCallback?.(progress.loaded, progress.total);
@@ -519,6 +516,9 @@ export class S3 extends Kodo {
             object.bucket,
             object.key,
             true,
+            {
+                abortSignal: option?.abortSignal,
+            },
         );
     }
 
@@ -622,7 +622,8 @@ export class S3 extends Kodo {
             this.fromKodoBucketNameToS3BucketId(transferObject.to.bucket),
         ]);
         const params: AWS.S3.Types.CopyObjectRequest = {
-            Bucket: toBucketId, Key: transferObject.to.key,
+            Bucket: toBucketId,
+            Key: transferObject.to.key,
             CopySource: `/${fromBucketId}/${encodeURIComponent(transferObject.from.key)}`,
             MetadataDirective: 'COPY',
             StorageClass: storageClass,
@@ -997,37 +998,36 @@ export class S3 extends Kodo {
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
-        let dataSource: Readable | Buffer;
-        if (this.adapterOption.ucUrl?.startsWith('https://') ?? true) {
-            const reader = new ReadableStreamBuffer({
-                initialSize: data.length, chunkSize: 1 << 20,
-            });
-            reader.put(data);
-            reader.stop();
-            if (option?.throttle) {
-                dataSource = reader.pipe(option.throttle);
-            } else {
-                dataSource = reader;
-            }
-        } else {
-            dataSource = data;
-        }
+
+        // get data source for http body
+        const dataSource = S3.getDataSource(
+            data,
+            s3.endpoint.protocol,
+            option,
+        );
+
+        // get upload part params
         const params: AWS.S3.Types.UploadPartRequest = {
             Bucket: bucketId,
             Key: object.key,
             Body: dataSource,
             ContentLength: data.length,
             ContentMD5: md5.base64(data),
-            PartNumber: partNumber, UploadId: uploadId,
+            PartNumber: partNumber,
+            UploadId: uploadId,
         };
         const uploader = s3.uploadPart(params);
+
+        // progress callback
         if (option?.progressCallback) {
-            // this will be not working as expected in NodeJS
-            // https://github.com/aws/aws-sdk-js/issues/1323
+            // s3 will read all data at once,
+            // so use httpUploadProgress event on request instead of data event on stream.
             uploader.on('httpUploadProgress', (progress) => {
-                option.progressCallback!(progress.loaded, progress.total);
+                option.progressCallback?.(progress.loaded, progress.total);
             });
         }
+
+        // send request
         const respond: any = await this.sendS3Request(
             uploader,
             'uploadPart',
@@ -1087,6 +1087,51 @@ export class S3 extends Kodo {
 
     protected getRequestsOption(): RequestOptions {
         return {};
+    }
+
+    /**
+     * hack data source like a file stream if provide file info
+     */
+    private static getDataSource(
+        data: Buffer,
+        protocol: string,
+        option?: PutObjectOption,
+    ): Readable | Buffer {
+        let result: Readable | Buffer;
+        if (
+            protocol === 'https:' ||
+            (protocol === 'http:' && option?.fileStreamSetting)
+        ) {
+            const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
+            reader.put(data);
+            reader.stop();
+            if (option?.throttle) {
+                // call `end` later manually because `end` will conflict with file stream.
+                result = reader.pipe(option.throttle, { end: false });
+            } else {
+                result = reader;
+            }
+
+            // s3 not support non-file stream when use http protocol.
+            // that make [httpUploadProgress not work as expect](https://github.com/aws/aws-sdk-js/issues/1323)
+            // so hack it like a file stream.
+            // ref: https://github.com/aws/aws-sdk-js/blob/v2.1015.0/lib/util.js#L730-L755
+            if (protocol === 'http:' && option?.fileStreamSetting) {
+                // prevent conflict with `end` property of file stream.
+                if (result instanceof Writable) {
+                    // @ts-ignore
+                    result._end = result.end;
+                    reader.on('end', () => {
+                        // @ts-ignore
+                        option.throttle?._end();
+                    });
+                }
+                Object.assign(result, option.fileStreamSetting);
+            }
+        } else {
+            result = data;
+        }
+        return result;
     }
 }
 

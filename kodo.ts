@@ -465,6 +465,7 @@ export class Kodo implements Adapter {
                 method: 'GET',
                 headers,
                 streaming: true,
+                abortSignal: option?.abortSignal,
 
                 // for uplog
                 apiName: 'getObjectStream',

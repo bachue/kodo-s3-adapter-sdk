@@ -1,11 +1,23 @@
-import { HttpClient } from './http-client';
-import { Adapter, Part, ProgressCallback, SetObjectHeader, StorageObject } from './adapter';
 import { FileHandle } from 'fs/promises';
 import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
+import { Ref } from './types';
+import { HttpClient } from './http-client';
+import {
+    Adapter,
+    Part,
+    ProgressCallback,
+    SetObjectHeader,
+    StorageObject,
+} from './adapter';
+
 export class Uploader {
     static readonly userCanceledError = new Error('User Canceled');
+    static readonly chunkTimeoutError = new Error('Chunk Timeout');
+
+    static readonly defaultChunkTimeout = 3000; // 3s
     private abortController?: AbortController;
+    private chunkTimeoutTimer?: number;
 
     constructor(private readonly adapter: Adapter) {
     }
@@ -24,6 +36,22 @@ export class Uploader {
             throw Uploader.userCanceledError;
         }
 
+        // handle chunk timeout by wrap progress callback
+        const progressCallbackError: Ref<Error> = {};
+        if (
+            putFileOption?.putCallback?.progressCallback
+        ) {
+            putFileOption.putCallback.progressCallback = this.wrapProgressCallback(
+                putFileOption.putCallback.progressCallback,
+                progressCallbackError,
+                {
+                    chunkTimeout: putFileOption.chunkTimeout,
+                    filePath: putFileOption.filePath,
+                },
+            );
+        }
+
+        // handle upload
         try {
             // should use form upload
             const partSize = putFileOption?.partSize ?? (1 << 22);
@@ -68,9 +96,17 @@ export class Uploader {
             );
         } catch (e) {
             if (e === HttpClient.userCanceledError) {
+                if (progressCallbackError.current) {
+                    throw progressCallbackError.current;
+                }
                 throw Uploader.userCanceledError;
             } else {
                 throw e;
+            }
+        } finally {
+            if (this.chunkTimeoutTimer) {
+                clearTimeout(this.chunkTimeoutTimer);
+                this.chunkTimeoutTimer = undefined;
             }
         }
     }
@@ -112,12 +148,20 @@ export class Uploader {
             {
                 progressCallback: (uploaded: number, total: number) => {
                     if (this.aborted) {
-                        throw Uploader.userCanceledError;
+                        return;
                     }
                     putFileOption?.putCallback?.progressCallback?.(uploaded, total);
                 },
                 throttle,
                 crc32: putFileOption?.crc32,
+                abortSignal: this.abortController?.signal,
+                fileStreamSetting: putFileOption?.filePath
+                    ? {
+                        path: putFileOption.filePath,
+                        start: 0,
+                        end: Infinity,
+                    }
+                    : undefined,
             },
         );
     }
@@ -139,7 +183,13 @@ export class Uploader {
             recovered.parts = recovered.parts.concat(putFileOption.recovered.parts);
             return recovered;
         }
-        const initPartsOutput = await this.adapter.createMultipartUpload(region, object, originalFileName, putFileOption?.header);
+        const initPartsOutput = await this.adapter.createMultipartUpload(
+            region,
+            object,
+            originalFileName,
+            putFileOption?.header,
+            this.abortController?.signal,
+        );
         recovered.uploadId = initPartsOutput.uploadId;
         return recovered;
     }
@@ -181,7 +231,9 @@ export class Uploader {
         }
 
         let data: Buffer | undefined = Buffer.alloc(partSize);
-        const { bytesRead } = await file.read(data, 0, partSize, partSize * (partNumber - 1));
+        const start = partSize * (partNumber - 1);
+        const end = start + partSize;
+        const { bytesRead } = await file.read(data, 0, partSize, start);
         if (this.aborted) {
             throw Uploader.userCanceledError;
         }
@@ -215,6 +267,13 @@ export class Uploader {
                 progressCallback,
                 throttle: makeThrottle(),
                 abortSignal: this.abortController?.signal,
+                fileStreamSetting: putFileOption.filePath
+                    ? {
+                        path: putFileOption.filePath,
+                        start,
+                        end,
+                    }
+                    : undefined,
             },
         );
         if (this.aborted) {
@@ -239,6 +298,42 @@ export class Uploader {
             putFileOption,
         );
     }
+
+    /**
+     * warp progress callback for some error handle.
+     * such as chunk timeout.
+     */
+    private wrapProgressCallback(
+        callback: ProgressCallback,
+        errorRef: Ref<Error>,
+        options: {
+            chunkTimeout?: number,
+            filePath?: string,
+        },
+    ): ProgressCallback {
+        const chunkTimeout = options.chunkTimeout ?? Uploader.defaultChunkTimeout;
+        if (!options.filePath) {
+            // S3 doesn't support chunk time when http if not provide filePath
+            return callback;
+        }
+        if (chunkTimeout <= 0) {
+            return callback;
+        }
+        return (...args) => {
+            if (this.chunkTimeoutTimer) {
+                clearTimeout(this.chunkTimeoutTimer);
+            }
+            this.chunkTimeoutTimer = setTimeout(() => {
+                if (this.aborted) {
+                    return;
+                }
+                errorRef.current = Uploader.chunkTimeoutError;
+                this.chunkTimeoutTimer = undefined;
+                this.abort();
+            }, chunkTimeout) as unknown as number;
+            callback(...args);
+        };
+    }
 }
 
 export interface PutCallback {
@@ -256,6 +351,8 @@ export interface PutFileOption {
     uploadThrottleGroup?: ThrottleGroup;
     uploadThrottleOption?: ThrottleOptions;
     crc32?: string;
+    chunkTimeout?: number;
+    filePath?: string;
 }
 
 export interface RecoveredOption {

@@ -188,15 +188,15 @@ export class HttpClient {
                     stream.stop();
                     let uploaded = 0;
                     const total = data.length;
-                    stream.on('data', (chunk) => {
-                        uploaded += chunk.length;
-                        options.uploadProgress?.(uploaded, total);
-                    });
                     if (options.uploadThrottle) {
                         requestOption.stream = stream.pipe(options.uploadThrottle);
                     } else {
                         requestOption.stream = stream;
                     }
+                    requestOption.stream.on('data', (chunk) => {
+                        uploaded += chunk.length;
+                        options.uploadProgress?.(uploaded, total);
+                    });
                 } else if (options.uploadThrottle) {
                     const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
                     stream.put(data);

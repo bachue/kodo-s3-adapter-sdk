@@ -212,14 +212,28 @@ export interface Part {
     etag: string;
 }
 
+export interface FileStreamSetting {
+    path: string,
+    start: number,
+    end: number,
+}
+
 export interface PutObjectOption {
     progressCallback?: ProgressCallback;
     throttle?: Throttle;
-    crc32?: string,
-    abortSignal?: AbortSignal,
+    crc32?: string;
+    abortSignal?: AbortSignal;
+
+    /**
+     * s3 not support non-file stream when use http protocol.
+     * use this options to hack it like a file stream.
+     * ref: https://github.com/aws/aws-sdk-js/blob/v2.1015.0/lib/util.js#L730-L755
+     */
+    fileStreamSetting?: FileStreamSetting;
 }
 
 export interface GetObjectStreamOption {
     rangeStart?: number;
     rangeEnd?: number;
+    abortSignal?: AbortSignal;
 }

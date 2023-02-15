@@ -1,12 +1,14 @@
-import { FileHandle } from 'fs/promises';
-import { Throttle, ThrottleGroup, ThrottleOptions } from 'stream-throttle';
+import { createReadStream } from 'fs';
+import { Readable, Transform, Writable } from 'stream';
+import { pipeline } from 'stream/promises';
+import { ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 import { Ref } from './types';
+import { Progress, SpeedMonitor } from './progress-stream';
 import { HttpClient } from './http-client';
 import {
     Adapter,
     Part,
-    ProgressCallback,
     SetObjectHeader,
     StorageObject,
 } from './adapter';
@@ -16,7 +18,10 @@ export class Uploader {
     static readonly chunkTimeoutError = new Error('Chunk Timeout');
 
     static readonly defaultChunkTimeout = 3000; // 3s
+    static speedInterval = 1000; // 1s
+    static speedWindowSize = 16; // window duration is 16 * speedInterval
     private abortController?: AbortController;
+    private speedMonitor?: SpeedMonitor;
     private chunkTimeoutTimer?: number;
 
     constructor(private readonly adapter: Adapter) {
@@ -25,31 +30,13 @@ export class Uploader {
     async putObjectFromFile(
         region: string,
         object: StorageObject,
-        file: FileHandle,
+        filePath: string,
         fileSize: number,
         originalFileName: string,
         putFileOption?: PutFileOption,
     ): Promise<void> {
         this.abortController = new AbortController();
-
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
-
-        // handle chunk timeout by wrap progress callback
-        const progressCallbackError: Ref<Error> = {};
-        if (
-            putFileOption?.putCallback?.progressCallback
-        ) {
-            putFileOption.putCallback.progressCallback = this.wrapProgressCallback(
-                putFileOption.putCallback.progressCallback,
-                progressCallbackError,
-                {
-                    chunkTimeout: putFileOption.chunkTimeout,
-                    filePath: putFileOption.filePath,
-                },
-            );
-        }
+        const putProgressError: Ref<Error> = {};
 
         // handle upload
         try {
@@ -57,47 +44,32 @@ export class Uploader {
             const partSize = putFileOption?.partSize ?? (1 << 22);
             const partsCount = partsCountOfFile(fileSize, partSize);
             if (putFileOption?.uploadThreshold && fileSize <= putFileOption.uploadThreshold || partsCount <= 1) {
-                await this.putObject(region, object, file, fileSize, originalFileName, putFileOption);
+                await this.putObject(
+                    region,
+                    object,
+                    filePath,
+                    fileSize,
+                    originalFileName,
+                    putProgressError,
+                    putFileOption,
+                );
                 return;
             }
 
             // should use multiple parts upload
-            // init parts
-            const recovered = await this.initParts(region, object, originalFileName, putFileOption);
-            putFileOption?.putCallback?.partsInitCallback?.({
-                uploadId: recovered.uploadId,
-                parts: recovered.parts.map(p => ({ ...p })), // deep copy in case of changed outer
-            });
-            const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
-
-            // upload parts
-            await this.uploadParts(
+            await this.multiplePartsUpload(
                 region,
                 object,
-                file,
+                filePath,
                 fileSize,
-                uploaded,
-                recovered,
-                1,
-                partsCount,
-                partSize,
-                putFileOption || {},
-            );
-
-            recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
-            await this.adapter.completeMultipartUpload(
-                region,
-                object,
-                recovered.uploadId,
-                recovered.parts,
                 originalFileName,
-                putFileOption?.header,
-                this.abortController.signal,
+                putProgressError,
+                putFileOption,
             );
         } catch (e) {
             if (e === HttpClient.userCanceledError) {
-                if (progressCallbackError.current) {
-                    throw progressCallbackError.current;
+                if (putProgressError.current) {
+                    throw putProgressError.current;
                 }
                 throw Uploader.userCanceledError;
             } else {
@@ -108,6 +80,10 @@ export class Uploader {
                 clearTimeout(this.chunkTimeoutTimer);
                 this.chunkTimeoutTimer = undefined;
             }
+            if (this.speedMonitor) {
+                this.speedMonitor.destroy();
+                this.speedMonitor = undefined;
+            }
         }
     }
 
@@ -116,53 +92,99 @@ export class Uploader {
     }
 
     abort(): void {
+        this.speedMonitor?.destroy();
         this.abortController?.abort();
     }
 
     private async putObject(
         region: string,
         object: StorageObject,
-        file: FileHandle,
+        filePath: string,
         fileSize: number,
         originalFileName: string,
+        putProgressError: Ref<Error>,
         putFileOption?: PutFileOption,
     ): Promise<void> {
-        const data = Buffer.alloc(fileSize);
-        const { bytesRead } = await file.read(data, 0, fileSize, 0);
-
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
-
-        let throttle: Throttle | undefined;
-        if (putFileOption?.uploadThrottleOption) {
-            const throttleGroup = putFileOption?.uploadThrottleGroup ?? new ThrottleGroup(putFileOption.uploadThrottleOption);
-            throttle = throttleGroup.throttle(putFileOption.uploadThrottleOption);
-        }
+        const data = this.getPutReader({
+            filePath,
+            putProgressError,
+            putFileOption,
+        });
+        this.speedMonitor = this.getSpeedMonitor({
+            totalSize: fileSize,
+            start: 0,
+            progressCallback: putFileOption?.putCallback?.progressCallback,
+        });
+        let lastUploaded = 0;
+        this.speedMonitor.start();
+        // send request
         await this.adapter.putObject(
             region,
             object,
-            data.subarray(0, bytesRead),
+            data,
             originalFileName,
             putFileOption?.header,
             {
-                progressCallback: (uploaded: number, total: number) => {
-                    if (this.aborted) {
-                        return;
-                    }
-                    putFileOption?.putCallback?.progressCallback?.(uploaded, total);
-                },
-                throttle,
-                crc32: putFileOption?.crc32,
                 abortSignal: this.abortController?.signal,
-                fileStreamSetting: putFileOption?.filePath
-                    ? {
-                        path: putFileOption.filePath,
-                        start: 0,
-                        end: Infinity,
-                    }
-                    : undefined,
+                fileStreamSetting: {
+                    path: filePath,
+                    start: 0,
+                    end: Infinity,
+                },
+                progressCallback: (uploaded) => {
+                    this.speedMonitor?.updateProgress(uploaded - lastUploaded);
+                    lastUploaded = uploaded;
+                },
             },
+        );
+        this.speedMonitor.destroy();
+        this.speedMonitor = undefined;
+    }
+
+    private async multiplePartsUpload(
+        region: string,
+        object: StorageObject,
+        filePath: string,
+        fileSize: number,
+        originalFileName: string,
+        putProgressError: Ref<Error>,
+        putFileOption?: PutFileOption,
+    ) {
+        const partSize = putFileOption?.partSize ?? (1 << 22);
+        const partsCount = partsCountOfFile(fileSize, partSize);
+
+        // init parts
+        const recovered = await this.initParts(region, object, originalFileName, putFileOption);
+        putFileOption?.putCallback?.partsInitCallback?.({
+            uploadId: recovered.uploadId,
+            parts: recovered.parts.map(p => ({ ...p })), // deep copy in case of changed outer
+        });
+        const uploaded = uploadedSizeOfParts(recovered.parts, fileSize, partSize);
+
+        // upload parts
+        await this.uploadParts(
+            region,
+            object,
+            filePath,
+            fileSize,
+            uploaded,
+            recovered,
+            1,
+            partsCount,
+            partSize,
+            putProgressError,
+            putFileOption || {},
+        );
+
+        recovered.parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
+        await this.adapter.completeMultipartUpload(
+            region,
+            object,
+            recovered.uploadId,
+            recovered.parts,
+            originalFileName,
+            putFileOption?.header,
+            this.abortController?.signal,
         );
     }
 
@@ -197,13 +219,14 @@ export class Uploader {
     private async uploadParts(
         region: string,
         object: StorageObject,
-        file: FileHandle,
+        filePath: string,
         fileSize: number,
         uploaded: number,
         recovered: RecoveredOption,
         partNumber: number,
         partsCount: number,
         partSize: number,
+        putProgressError: Ref<Error>,
         putFileOption: PutFileOption,
     ): Promise<void> {
         if (partNumber > partsCount) {
@@ -214,130 +237,168 @@ export class Uploader {
             throw Uploader.userCanceledError;
         }
 
-        if (findPartsByNumber(recovered.parts, partNumber)) {
-            await this.uploadParts(
+        this.speedMonitor = this.getSpeedMonitor({
+            totalSize: fileSize,
+            start: uploaded,
+            progressCallback: putFileOption.putCallback?.progressCallback,
+        });
+
+        for (let partNum = partNumber; partNum <= partsCount; partNum += 1) {
+            if (findPartsByNumber(recovered.parts, partNum)) {
+                continue;
+            }
+
+            this.speedMonitor.start();
+            const start = partSize * (partNum - 1);
+            const end = Math.min(
+                start + partSize - 1,
+                fileSize - 1,
+            );
+            const fileReader = this.getPutReader({
+                filePath,
+                start,
+                end,
+                putProgressError,
+                putFileOption,
+            });
+
+            let lastUploaded = 0;
+            const uploadPartResp = await this.adapter.uploadPart(
                 region,
                 object,
-                file,
-                fileSize,
-                uploaded,
-                recovered,
-                partNumber + 1,
-                partsCount,
-                partSize,
-                putFileOption,
-            );
-            return;
-        }
-
-        let data: Buffer | undefined = Buffer.alloc(partSize);
-        const start = partSize * (partNumber - 1);
-        const end = start + partSize;
-        const { bytesRead } = await file.read(data, 0, partSize, start);
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
-
-        const makeThrottle = (): Throttle | undefined => {
-            if (!putFileOption.uploadThrottleOption) {
-                return;
-            }
-            if (!putFileOption.uploadThrottleGroup) {
-                putFileOption.uploadThrottleGroup = new ThrottleGroup(putFileOption.uploadThrottleOption);
-            }
-            return putFileOption.uploadThrottleGroup.throttle(putFileOption.uploadThrottleOption);
-        };
-
-        let progressCallback: ProgressCallback | undefined;
-        if (putFileOption.putCallback?.progressCallback) {
-            progressCallback = (partUploaded: number, _partTotal: number) => {
-                if (this.aborted) {
-                    return;
-                }
-                putFileOption.putCallback?.progressCallback?.(uploaded + partUploaded, fileSize);
-            };
-        }
-        const output = await this.adapter.uploadPart(
-            region,
-            object,
-            recovered.uploadId,
-            partNumber,
-            data!.subarray(0, bytesRead),
-            {
-                progressCallback,
-                throttle: makeThrottle(),
-                abortSignal: this.abortController?.signal,
-                fileStreamSetting: putFileOption.filePath
-                    ? {
-                        path: putFileOption.filePath,
+                recovered.uploadId,
+                partNum,
+                fileReader,
+                {
+                    abortSignal: this.abortController?.signal,
+                    fileStreamSetting: {
+                        path: filePath,
                         start,
                         end,
+                    },
+                    progressCallback: (uploaded) => {
+                        this.speedMonitor?.updateProgress(uploaded - lastUploaded);
+                        lastUploaded = uploaded;
                     }
-                    : undefined,
-            },
-        );
-        if (this.aborted) {
-            throw Uploader.userCanceledError;
-        }
-
-        data = undefined;
-        const part: Part = { etag: output.etag, partNumber };
-        putFileOption?.putCallback?.partPutCallback?.(part);
-        recovered.parts.push(part);
-        uploaded += bytesRead;
-        await this.uploadParts(
-            region,
-            object,
-            file,
-            fileSize,
-            uploaded,
-            recovered,
-            partNumber + 1,
-            partsCount,
-            partSize,
-            putFileOption,
-        );
-    }
-
-    /**
-     * warp progress callback for some error handle.
-     * such as chunk timeout.
-     */
-    private wrapProgressCallback(
-        callback: ProgressCallback,
-        errorRef: Ref<Error>,
-        options: {
-            chunkTimeout?: number,
-            filePath?: string,
-        },
-    ): ProgressCallback {
-        const chunkTimeout = options.chunkTimeout ?? Uploader.defaultChunkTimeout;
-        if (!options.filePath) {
-            // S3 doesn't support chunk time when http if not provide filePath
-            return callback;
-        }
-        if (chunkTimeout <= 0) {
-            return callback;
-        }
-        return (...args) => {
+                },
+            );
             if (this.chunkTimeoutTimer) {
                 clearTimeout(this.chunkTimeoutTimer);
             }
-            this.chunkTimeoutTimer = setTimeout(() => {
-                if (this.aborted) {
-                    return;
-                }
-                errorRef.current = Uploader.chunkTimeoutError;
-                this.chunkTimeoutTimer = undefined;
-                this.abort();
-            }, chunkTimeout) as unknown as number;
-            callback(...args);
+            this.speedMonitor.pause();
+            if (this.aborted) {
+                throw Uploader.userCanceledError;
+            }
+
+            const part: Part = { etag: uploadPartResp.etag, partNumber: partNum };
+            putFileOption?.putCallback?.partPutCallback?.(part);
+            recovered.parts.push(part);
+        }
+
+        this.speedMonitor.destroy();
+    }
+
+    private getChunkTimeoutMonitor(
+        chunkTimeout: number,
+        errorRef: Ref<Error>,
+    ): Transform {
+        const checkNeedTimeout = () => {
+            if (this.aborted) {
+                return;
+            }
+            if (this.speedMonitor && this.speedMonitor.speed * 1000 >= 512) {
+                this.chunkTimeoutTimer = setTimeout(checkNeedTimeout, chunkTimeout) as unknown as number;
+                return;
+            }
+            errorRef.current = Uploader.chunkTimeoutError;
+            this.chunkTimeoutTimer = undefined;
+            this.abort();
         };
+        return new Transform({
+            transform: (chunk, _encoding, callback) => {
+                if (this.chunkTimeoutTimer) {
+                    clearTimeout(this.chunkTimeoutTimer);
+                }
+                this.chunkTimeoutTimer = setTimeout(checkNeedTimeout, chunkTimeout) as unknown as number;
+                callback(null, chunk);
+            }
+        });
+    }
+
+    private getSpeedMonitor({
+        totalSize,
+        start = 0,
+        progressCallback,
+    }: {
+        totalSize: number,
+        start?: number,
+        progressCallback?: (progress: Progress) => void,
+    }): SpeedMonitor {
+        const result = new SpeedMonitor({
+            total: totalSize,
+            transferred: start,
+            interval: Uploader.speedInterval,
+            windowSize: Uploader.speedWindowSize,
+            autoStart: false,
+        });
+        if (progressCallback) {
+            result.on('progress', p => progressCallback(p));
+        }
+        return result;
+    }
+
+    private getPutReader({
+        filePath,
+        start,
+        end,
+        putProgressError,
+        putFileOption,
+    }: {
+        filePath: string,
+        start?: number,
+        end?: number,
+        putProgressError: Ref<Error>,
+        putFileOption?: PutFileOption,
+    }): Readable {
+        const pipeList: (Readable | Writable)[] = [];
+
+        // reader
+        const fileReader = createReadStream(filePath, {
+            start,
+            end,
+        });
+        pipeList.push(fileReader);
+
+        // throttle
+        if (putFileOption?.uploadThrottleOption) {
+            const throttleGroup = putFileOption?.uploadThrottleGroup ?? new ThrottleGroup(putFileOption.uploadThrottleOption);
+            const throttle = throttleGroup.throttle(putFileOption.uploadThrottleOption);
+            pipeList.push(throttle);
+        }
+
+        // chunk timeout
+        pipeList.push(this.getChunkTimeoutMonitor(
+            Uploader.defaultChunkTimeout,
+            putProgressError,
+        ));
+
+        // check last is reader
+        const result = pipeList[pipeList.length - 1];
+        if (!(result instanceof Readable)) {
+            throw new Error('The last element in pipe list must be Readable');
+        }
+
+        // pipe
+        pipeline(pipeList)
+            .catch(err => {
+                putProgressError.current = err;
+            });
+        return result;
     }
 }
 
 export interface PutCallback {
-    progressCallback?: ProgressCallback;
+    progressCallback?: (progress: Progress) => void;
     partsInitCallback?: (initInfo: RecoveredOption) => void;
     partPutCallback?: (part: Part) => void;
 }
@@ -350,9 +411,7 @@ export interface PutFileOption {
     uploadThreshold?: number;
     uploadThrottleGroup?: ThrottleGroup;
     uploadThrottleOption?: ThrottleOptions;
-    crc32?: string;
     chunkTimeout?: number;
-    filePath?: string;
 }
 
 export interface RecoveredOption {

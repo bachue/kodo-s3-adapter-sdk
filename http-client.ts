@@ -2,7 +2,7 @@ import http from 'http';
 import fs from 'fs';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import Agent from 'agentkeepalive';
-import { Throttle } from 'stream-throttle';
+import { Readable, Transform } from 'stream';
 import {
     ErrorType,
     GenRequestUplogEntry,
@@ -11,7 +11,6 @@ import {
     UplogBuffer,
 } from './uplog';
 import FormData from 'form-data';
-import { ReadableStreamBuffer } from 'stream-buffers';
 import { RequestInfo, ResponseInfo } from './adapter';
 import { generateAccessTokenV2, getXQiniuDate } from './kodo-auth';
 import { generateReqId } from './req_id';
@@ -52,14 +51,12 @@ export interface URLRequestOptions {
     method: HttpMethod;
     path?: string;
     query?: URLSearchParams;
-    data?: string | Buffer;
+    data?: string | Buffer | Readable;
     dataType?: string;
     form?: FormData;
     streaming?: boolean,
     contentType?: string;
     headers?: { [headerName: string]: string; },
-    uploadProgress?: (uploaded: number, total: number) => void,
-    uploadThrottle?: Throttle,
     abortSignal?: AbortSignal,
     stats?: RequestStats,
 
@@ -181,30 +178,19 @@ export class HttpClient {
                 },
             };
             let callbackError: Error | undefined;
-            if (data) {
-                if (options.uploadProgress) {
-                    const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    stream.put(data);
-                    stream.stop();
-                    let uploaded = 0;
-                    const total = data.length;
-                    if (options.uploadThrottle) {
-                        requestOption.stream = stream.pipe(options.uploadThrottle);
-                    } else {
-                        requestOption.stream = stream;
+            let dataLength: number;
+            if (data instanceof Readable) {
+                dataLength = 0;
+                const dataLenCounter = new Transform({
+                    transform(chunk, _encoding, callback) {
+                        dataLength += chunk.length;
+                        callback(null, chunk);
                     }
-                    requestOption.stream.on('data', (chunk) => {
-                        uploaded += chunk.length;
-                        options.uploadProgress?.(uploaded, total);
-                    });
-                } else if (options.uploadThrottle) {
-                    const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    stream.put(data);
-                    stream.stop();
-                    requestOption.stream = stream.pipe(options.uploadThrottle);
-                } else {
-                    requestOption.data = data;
-                }
+                });
+                requestOption.stream = data.pipe(dataLenCounter);
+            } else {
+                requestOption.data = data;
+                dataLength = data?.length ?? 0;
             }
 
             const uplogMaker = new GenRequestUplogEntry(
@@ -244,22 +230,19 @@ export class HttpClient {
                         return;
                     }
 
-                    const reqBody: Buffer = data instanceof Buffer
-                        ? data
-                        : Buffer.from(data ?? '');
                     if (response.status >= 200 && response.status < 400) {
                         const requestUplogEntry = uplogMaker.getRequestUplogEntry({
                             reqId: response.headers['x-reqid']?.toString(),
                             costDuration: responseInfo.interval,
                             // @ts-ignore
                             remoteIp: response.res.remoteAddress,
-                            bytesSent: reqBody.length,
+                            bytesSent: dataLength,
                             // @ts-ignore
                             bytesReceived: response.res.size,
                             statusCode: response.status,
                         });
                         if (options.stats) {
-                            options.stats.bytesTotalSent += reqBody.length;
+                            options.stats.bytesTotalSent += dataLength;
                             // @ts-ignore
                             options.stats.bytesTotalReceived += response.res.size;
                         }

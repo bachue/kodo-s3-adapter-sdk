@@ -2,10 +2,11 @@ import dns from 'dns';
 import AsyncLock from 'async-lock';
 import AWS from 'aws-sdk';
 import os from 'os';
+import fs from 'fs';
 import pkg from './package.json';
 import md5 from 'js-md5';
 import { URL } from 'url';
-import { Readable, Writable } from 'stream';
+import { PassThrough, Readable, Writable } from 'stream';
 import { Semaphore } from 'semaphore-promise';
 import { Kodo } from './kodo';
 import { ReadableStreamBuffer } from 'stream-buffers';
@@ -217,9 +218,7 @@ export class S3 extends Kodo {
 
         options = {
             ...options,
-            /**
-             * for uplog with {@link S3Scope}
-             **/
+            // for uplog with {@link S3Scope}
             ...this.getRequestsOption(),
         };
 
@@ -416,7 +415,7 @@ export class S3 extends Kodo {
     async putObject(
         s3RegionId: string,
         object: StorageObject,
-        data: Buffer,
+        data: Buffer | Readable,
         _originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -433,14 +432,32 @@ export class S3 extends Kodo {
             option,
         );
 
+        // get content length and content md5
+        let contentLength: number;
+        let contentMd5: string;
+        if (data instanceof Readable) {
+            if (!option?.fileStreamSetting) {
+                throw new Error('s3 need fileStreamSetting when use stream');
+            }
+            contentLength = (await fs.promises.stat(option.fileStreamSetting.path)).size;
+            contentMd5 = await this.getContentMd5(
+                option.fileStreamSetting.path,
+                option.fileStreamSetting.start,
+                option.fileStreamSetting.end,
+            );
+        } else {
+            contentLength = data.length;
+            contentMd5 = await this.getContentMd5(data);
+        }
+
         // get put object params
         const params: AWS.S3.Types.PutObjectRequest = {
             Bucket: bucketId,
             Key: object.key,
             Body: dataSource,
-            ContentLength: data.length,
+            ContentLength: contentLength,
             ContentType: header?.contentType,
-            ContentMD5: md5.base64(data),
+            ContentMD5: contentMd5,
             Metadata: header?.metadata,
             StorageClass: this.convertStorageClass(
                 object.storageClassName,
@@ -994,7 +1011,7 @@ export class S3 extends Kodo {
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer,
+        data: Buffer | Readable,
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
@@ -1006,13 +1023,32 @@ export class S3 extends Kodo {
             option,
         );
 
+        // get content length and content md5
+        let contentLength: number;
+        let contentMd5: string;
+        if (data instanceof Readable) {
+            if (!option?.fileStreamSetting) {
+                throw new Error('s3 need fileStreamSetting when use stream');
+            }
+            contentLength =
+                option.fileStreamSetting.end - option.fileStreamSetting.start + 1;
+            contentMd5 = await this.getContentMd5(
+                option.fileStreamSetting.path,
+                option.fileStreamSetting.start,
+                option.fileStreamSetting.end,
+            );
+        } else {
+            contentLength = data.length;
+            contentMd5 = await this.getContentMd5(data);
+        }
+
         // get upload part params
         const params: AWS.S3.Types.UploadPartRequest = {
             Bucket: bucketId,
             Key: object.key,
             Body: dataSource,
-            ContentLength: data.length,
-            ContentMD5: md5.base64(data),
+            ContentLength: contentLength,
+            ContentMD5: contentMd5,
             PartNumber: partNumber,
             UploadId: uploadId,
         };
@@ -1093,29 +1129,29 @@ export class S3 extends Kodo {
      * hack data source like a file stream if provide file info
      */
     private static getDataSource(
-        data: Buffer,
+        data: Buffer | Readable,
         protocol: string,
         option?: PutObjectOption,
-    ): Readable | Buffer {
+    ): Buffer | Readable {
         let result: Readable | Buffer;
+        let reader: Readable;
+        if (data instanceof Buffer) {
+            const _reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 16 * (1 << 10) });
+            _reader.put(data);
+            _reader.stop();
+            reader = _reader;
+        } else {
+            reader = data;
+        }
         if (
             protocol === 'https:' ||
             (protocol === 'http:' && option?.fileStreamSetting)
         ) {
-            const reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-            reader.put(data);
-            reader.stop();
-            if (option?.throttle) {
-                // call `end` later manually because `end` will conflict with file stream.
-                result = reader.pipe(option.throttle, { end: false });
-            } else {
-                result = reader;
-            }
-
             // s3 not support non-file stream when use http protocol.
             // that make [httpUploadProgress not work as expect](https://github.com/aws/aws-sdk-js/issues/1323)
             // so hack it like a file stream.
             // ref: https://github.com/aws/aws-sdk-js/blob/v2.1015.0/lib/util.js#L730-L755
+            result = reader.pipe(new PassThrough(), { end: false });
             if (protocol === 'http:' && option?.fileStreamSetting) {
                 // prevent conflict with `end` property of file stream.
                 if (result instanceof Writable) {
@@ -1132,6 +1168,29 @@ export class S3 extends Kodo {
             result = data;
         }
         return result;
+    }
+
+    /**
+     * @return result is **base64** format
+     */
+    protected async getContentMd5(data: Buffer): Promise<string>
+    protected async getContentMd5(filePath: string, start: number, end: number): Promise<string>
+    protected async getContentMd5(data: string | Buffer, start?: number, end?: number): Promise<string> {
+        if (data instanceof Buffer) {
+            return md5.base64(data);
+        }
+
+        const chunkStream = fs.createReadStream(data, { start, end });
+        const chunkMd5 = md5.create();
+        chunkStream.on('data', chunk => {
+            chunkMd5.update(chunk);
+        });
+        return new Promise<string>((resolve, reject) => {
+            chunkStream.on('error', reject);
+            chunkStream.on('end', () => {
+                resolve(chunkMd5.base64());
+            });
+        });
     }
 }
 

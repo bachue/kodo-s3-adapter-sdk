@@ -1,6 +1,5 @@
 import { Region } from './region';
 import { URL } from 'url';
-import { Throttle } from 'stream-throttle';
 import { Readable } from 'stream';
 import { OutgoingHttpHeaders } from 'http';
 import { NatureLanguage } from './uplog';
@@ -37,7 +36,7 @@ export abstract class Adapter {
     abstract putObject(
         region: string,
         object: StorageObject,
-        data: Buffer,
+        data: Buffer | Readable,
         originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -54,7 +53,7 @@ export abstract class Adapter {
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer,
+        data: Buffer | Readable,
         option?: PutObjectOption,
     ): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(
@@ -219,17 +218,21 @@ export interface FileStreamSetting {
 }
 
 export interface PutObjectOption {
-    progressCallback?: ProgressCallback;
-    throttle?: Throttle;
-    crc32?: string;
+    /**
+     * control to abort upload request
+     */
     abortSignal?: AbortSignal;
 
     /**
-     * s3 not support non-file stream when use http protocol.
+     * For both kodo and s3, they need to calculate md5 when uploading.
+     *
+     * Specially s3, it not supports non-file stream when use http protocol.
      * use this options to hack it like a file stream.
      * ref: https://github.com/aws/aws-sdk-js/blob/v2.1015.0/lib/util.js#L730-L755
      */
     fileStreamSetting?: FileStreamSetting;
+
+    progressCallback?: ProgressCallback;
 }
 
 export interface GetObjectStreamOption {

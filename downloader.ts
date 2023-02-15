@@ -1,9 +1,11 @@
-import { pipeline, Readable, Transform, TransformCallback, Writable } from 'stream';
+import { Readable, Transform, TransformCallback, Writable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { createWriteStream, promises as fsPromises } from 'fs';
 import { ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 import { Ref } from './types';
-import { Adapter, Domain, ObjectHeader, ProgressCallback, StorageObject } from './adapter';
+import { Progress, ProgressStream, SpeedMonitor } from './progress-stream';
+import { Adapter, Domain, ObjectHeader, StorageObject } from './adapter';
 import { HttpClient } from './http-client';
 
 export class Downloader {
@@ -11,6 +13,8 @@ export class Downloader {
     static readonly chunkTimeoutError = new Error('Chunk Timeout');
 
     static readonly defaultChunkTimeout = 3000; // 3s
+    static readonly speedInterval = 1000; // 1s
+    static readonly speedWindowSize = 3; // window duration is 3 * speedInterval
     private abortController?: AbortController;
     private chunkTimeoutTimer?: number;
 
@@ -25,97 +29,81 @@ export class Downloader {
         getFileOption?: GetFileOption,
     ): Promise<void> {
         this.abortController = new AbortController();
-
-        if (this.aborted) {
-            throw Downloader.userCanceledError;
-        }
-
-        const header = await this.adapter.getObjectHeader(region, object, domain);
-        getFileOption?.getCallback?.headerCallback?.(header);
-
-        // get recovered position
-        const recoveredFrom = await this.getRecoverPosition(filePath, getFileOption?.recoveredFrom);
-
-        const pipeList: (Readable | Writable)[] = [];
-
-        // get write stream
-        const fileWriteStream = this.getWriteableStream(
-            filePath,
-            recoveredFrom,
-        );
-        pipeList.unshift(fileWriteStream);
-
-        // get progress monitor
-        if (getFileOption?.getCallback?.progressCallback) {
-            const progressMonitor = this.getProgressMonitor(
-                recoveredFrom,
-                header.size,
-                getFileOption.getCallback.progressCallback,
-            );
-            pipeList.unshift(progressMonitor);
-        }
-
-        // get part get monitor
-        if (getFileOption?.getCallback?.partGetCallback &&
-            getFileOption.partSize &&
-            getFileOption.partSize > 0
-        ) {
-            const partGetMonitor = this.getPartGetMonitor(
-                getFileOption.partSize,
-                getFileOption.getCallback.partGetCallback,
-            );
-            pipeList.unshift(partGetMonitor);
-        }
-
-        // get chunk timeout monitor
-        const chunkTimeout = getFileOption?.chunkTimeout ?? Downloader.defaultChunkTimeout;
         const readerOnDataError: Ref<Error> = {};
-        if (chunkTimeout > 0) {
-            const chunkTimeoutMonitor = this.getChunkTimeoutMonitor(
-                chunkTimeout,
-                readerOnDataError,
-            );
-            pipeList.unshift(chunkTimeoutMonitor);
-        }
-
-        // get throttle stream
-        if (getFileOption?.downloadThrottleOption) {
-            const throttleGroup = getFileOption?.downloadThrottleGroup ?? new ThrottleGroup(getFileOption.downloadThrottleOption);
-            pipeList.unshift(throttleGroup.throttle(getFileOption.downloadThrottleOption));
-        }
-
-        // get read stream
-        const reader = await this.getObjectReader(
-            region,
-            object,
-            domain,
-            {
-                rangeStart: recoveredFrom,
-            },
-        );
-        pipeList.unshift(reader);
-
-        // change to stream/promises pipeline
-        const result = new Promise<void>((resolve, reject) => {
-            pipeline(pipeList, err => {
-                if (!err) {
-                    resolve();
-                    return;
-                }
-                reject(err);
-                return;
-            });
-        });
 
         try {
-            await result;
+            const header = await this.adapter.getObjectHeader(region, object, domain);
+            getFileOption?.getCallback?.headerCallback?.(header);
+
+            // get recovered position
+            const recoveredFrom = await this.getRecoverPosition(filePath, getFileOption?.recoveredFrom);
+
+            const pipeList: (Readable | Writable)[] = [];
+
+            // get write stream
+            const fileWriteStream = this.getWriteableStream(
+                filePath,
+                recoveredFrom,
+            );
+            pipeList.unshift(fileWriteStream);
+
+            // get progress monitor
+            if (getFileOption?.getCallback?.progressCallback) {
+                const progressMonitor = this.getProgressMonitor({
+                    start: recoveredFrom,
+                    totalSize: header.size,
+                    progressCallback: getFileOption.getCallback.progressCallback,
+                });
+                pipeList.unshift(progressMonitor);
+            }
+
+            // get part get monitor
+            if (getFileOption?.getCallback?.partGetCallback &&
+                getFileOption.partSize &&
+                getFileOption.partSize > 0
+            ) {
+                const partGetMonitor = this.getPartGetMonitor(
+                    getFileOption.partSize,
+                    getFileOption.getCallback.partGetCallback,
+                );
+                pipeList.unshift(partGetMonitor);
+            }
+
+            // get chunk timeout monitor
+            const chunkTimeout = getFileOption?.chunkTimeout ?? Downloader.defaultChunkTimeout;
+            if (chunkTimeout > 0) {
+                const chunkTimeoutMonitor = this.getChunkTimeoutMonitor(
+                    chunkTimeout,
+                    readerOnDataError,
+                );
+                pipeList.unshift(chunkTimeoutMonitor);
+            }
+
+            // get throttle stream
+            if (getFileOption?.downloadThrottleOption) {
+                const throttleGroup = getFileOption?.downloadThrottleGroup ?? new ThrottleGroup(getFileOption.downloadThrottleOption);
+                pipeList.unshift(throttleGroup.throttle(getFileOption.downloadThrottleOption));
+            }
+
+            // get read stream
+            const reader = await this.getObjectReader(
+                region,
+                object,
+                domain,
+                {
+                    rangeStart: recoveredFrom,
+                },
+            );
+            pipeList.unshift(reader);
+
+            await pipeline(pipeList);
         } catch (err) {
             if (
                 err === HttpClient.userCanceledError ||
                 err.toString().includes('aborted')
             ) {
                 if (readerOnDataError.current) {
-                    throw (readerOnDataError.current);
+                    throw readerOnDataError.current;
                 }
                 throw Downloader.userCanceledError;
             }
@@ -131,6 +119,9 @@ export class Downloader {
     }
 
     abort(): void {
+        if (this.aborted) {
+            return;
+        }
         this.abortController?.abort();
     }
 
@@ -138,8 +129,12 @@ export class Downloader {
         if (!from) {
             return 0;
         }
-        const stat = await fsPromises.stat(filePath);
-        return Math.min(stat.size, from);
+        try {
+            const stat = await fsPromises.stat(filePath);
+            return Math.min(stat.size, from);
+        } catch {
+            return 0;
+        }
     }
 
     private getWriteableStream(
@@ -185,6 +180,7 @@ export class Downloader {
                 return;
             }
             // TODO: upgrade @types/node to support `writableNeedDrain` for removing @ts-ignore
+            //   Tried upgrade to v16, but still no `writableNeedDrain`. Maybe a mistake of @types/node.
             // @ts-ignore
             if (t.writableNeedDrain) {
                 // upstream.on('data') -> t.write -> t.transform -> checkNeedTimeout
@@ -216,14 +212,25 @@ export class Downloader {
         return t;
     }
 
-    private getProgressMonitor(start: number, totalSize: number, progressCallback: ProgressCallback) {
-        let receivedDataBytes = start;
-        return new Transform({
-            transform: (chunk, _encoding, callback) => {
-                receivedDataBytes += chunk.length;
-                progressCallback(receivedDataBytes, totalSize);
-                callback(null, chunk);
-            },
+    private getProgressMonitor({
+        totalSize,
+        start = 0,
+        progressCallback,
+    }: {
+        totalSize: number,
+        start?: number,
+        progressCallback: (progress: Progress) => void,
+    }) {
+        const monitor = new SpeedMonitor({
+            total: totalSize,
+            transferred: start,
+            interval: Downloader.speedInterval,
+            windowSize: Downloader.speedWindowSize,
+            autoStart: false,
+        });
+        monitor.on('progress', progressCallback);
+        return new ProgressStream({
+            monitor,
         });
     }
 
@@ -246,7 +253,7 @@ export class Downloader {
 }
 
 export interface GetCallback {
-    progressCallback?: ProgressCallback;
+    progressCallback?: (progress: Progress) => void;
     headerCallback?: (header: ObjectHeader) => void;
     partGetCallback?: (partSize: number) => void;
 }

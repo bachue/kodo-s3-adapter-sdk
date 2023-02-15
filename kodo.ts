@@ -1,5 +1,6 @@
 import AsyncLock from 'async-lock';
 import os from 'os';
+import fs from 'fs';
 import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
@@ -8,7 +9,8 @@ import { Semaphore } from 'semaphore-promise';
 import { RegionRequestOptions } from './region';
 import { RegionService } from './region_service';
 import { URL, URLSearchParams } from 'url';
-import { Readable } from 'stream';
+import { PassThrough, Readable, Transform } from 'stream';
+import { ReadableStreamBuffer } from 'stream-buffers';
 import { HttpClientResponse } from 'urllib';
 import { encode as base64Encode } from 'js-base64';
 import { base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL } from './kodo-auth';
@@ -356,7 +358,7 @@ export class Kodo implements Adapter {
     async putObject(
         s3RegionId: string,
         object: StorageObject,
-        data: Buffer,
+        data: Buffer | Readable,
         originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -385,17 +387,34 @@ export class Kodo implements Adapter {
                 form.append(`x-qn-meta-${metaKey}`, metaValue);
             }
         }
-        if (option?.crc32) {
-            form.append('crc32', option.crc32);
+        // get content length and content crc32
+        let contentLength: number;
+        let crc32: string;
+        if (data instanceof Readable) {
+            if (!option?.fileStreamSetting) {
+                throw new Error('s3 need fileStreamSetting when use stream');
+            }
+            contentLength = (await fs.promises.stat(option.fileStreamSetting.path)).size;
+            crc32 = (await this.getContentCrc32(
+                option.fileStreamSetting.path,
+                option.fileStreamSetting.start,
+                option.fileStreamSetting.end,
+            )).toString();
         } else {
-            form.append('crc32', CRC32.unsigned(data));
+            contentLength = data.length;
+            crc32 = (await this.getContentCrc32(data)).toString();
         }
+        form.append('crc32', crc32);
 
+        const fileData = Kodo.wrapDataWithProgress(data, contentLength, option);
         const fileOption: FormData.AppendOptions = {
             filename: originalFileName,
         };
         fileOption.contentType = header?.contentType;
-        form.append('file', data, fileOption);
+        form.append('file', fileData, fileOption);
+
+        // fix form not instanceof readable, causing http client not upload as stream.
+        const putData = form.pipe(new PassThrough());
 
         await this.call({
             method: 'POST',
@@ -403,9 +422,7 @@ export class Kodo implements Adapter {
             dataType: 'json',
             s3RegionId,
             contentType: form.getHeaders()['content-type'],
-            form,
-            uploadProgress: option?.progressCallback,
-            uploadThrottle: option?.throttle,
+            data: putData,
             appendAuthorization: false,
             abortSignal: option?.abortSignal,
 
@@ -954,7 +971,7 @@ export class Kodo implements Adapter {
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer,
+        data: Buffer | Readable,
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const token = makeUploadToken(
@@ -972,22 +989,41 @@ export class Kodo implements Adapter {
                     : undefined,
             }),
         );
+
+        // get content length and content md5
+        let contentLength: number;
+        let contentMd5: string;
+        if (data instanceof Readable) {
+            if (!option?.fileStreamSetting) {
+                throw new Error('kodo need fileStreamSetting when use stream');
+            }
+            contentLength = option.fileStreamSetting.end - option.fileStreamSetting.start + 1;
+            contentMd5 = await this.getContentMd5(
+                option.fileStreamSetting.path,
+                option.fileStreamSetting.start,
+                option.fileStreamSetting.end,
+            );
+        } else {
+            contentLength = data.length;
+            contentMd5 = await this.getContentMd5(data);
+        }
+
+        const putData = Kodo.wrapDataWithProgress(data, contentLength, option);
+
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
 
         const response = await this.call({
             method: 'PUT',
             serviceName: ServiceName.Up,
             path,
-            data,
+            data: putData,
             dataType: 'json',
             s3RegionId,
             contentType: 'application/octet-stream',
             headers: {
                 'authorization': `UpToken ${token}`,
-                'content-md5': md5.hex(data),
+                'content-md5': contentMd5,
             },
-            uploadProgress: option?.progressCallback,
-            uploadThrottle: option?.throttle,
             appendAuthorization: false,
             abortSignal: option?.abortSignal,
 
@@ -1077,6 +1113,81 @@ export class Kodo implements Adapter {
 
     protected log(entry: UplogEntry): Promise<void> {
         return this.client.log(entry);
+    }
+
+    /**
+     * trans data source to stream
+     */
+    private static wrapDataWithProgress(
+        data: Buffer | Readable,
+        dataLength: number,
+        option?: PutObjectOption,
+    ): Readable {
+        let result: Readable;
+        let reader: Readable;
+        if (data instanceof Buffer) {
+            const _reader = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 16 * (1 << 10) });
+            _reader.put(data);
+            _reader.stop();
+            reader = _reader;
+        } else {
+            reader = data;
+        }
+        result = reader;
+        if (option?.progressCallback) {
+            let uploaded = 0;
+            result = reader.pipe(new Transform({
+                transform(chunk, _encoding, callback) {
+                    uploaded += chunk.length;
+                    option.progressCallback?.(uploaded, dataLength);
+                    callback(null, chunk);
+                },
+            }));
+        }
+        return result;
+    }
+
+    /**
+     * @return result is **hex** format
+     */
+    protected async getContentMd5(data: Buffer): Promise<string>
+    protected async getContentMd5(filePath: string, start: number, end: number): Promise<string>
+    protected async getContentMd5(data: string | Buffer, start?: number, end?: number): Promise<string> {
+        if (data instanceof Buffer) {
+            return md5.hex(data);
+        }
+
+        const chunkStream = fs.createReadStream(data, { start, end });
+        const chunkMd5 = md5.create();
+        chunkStream.on('data', chunk => {
+            chunkMd5.update(chunk);
+        });
+        return new Promise<string>((resolve, reject) => {
+            chunkStream.on('error', reject);
+            chunkStream.on('end', () => {
+                resolve(chunkMd5.hex());
+            });
+        });
+    }
+
+    protected async getContentCrc32(data: Buffer): Promise<number>
+    protected async getContentCrc32(filePath: string, start: number, end: number): Promise<number>
+    protected async getContentCrc32(data: string | Buffer, start?: number, end?: number): Promise<number> {
+        if (data instanceof Buffer) {
+            return CRC32.unsigned(data);
+        }
+
+        let result: Buffer;
+        const chunkStream = fs.createReadStream(data, { start, end });
+        chunkStream.on('data', chunk => {
+            result = CRC32(chunk, result);
+        });
+        return new Promise<number>((resolve, reject) => {
+            chunkStream.on('error', reject);
+            chunkStream.on('end', () => {
+                resolve(parseInt(result.toString('hex'), 16));
+            });
+        });
     }
 }
 

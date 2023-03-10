@@ -792,6 +792,78 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                     await qiniuAdapter.deleteObject(bucketRegionId, { bucket: bucketName, key: key });
                 });
+
+                it('upload and download empty object' + caseItem.label, async () => {
+                    const qiniu = new Qiniu(accessKey, secretKey);
+                    const qiniuAdapter = qiniu.mode(mode);
+                    qiniuAdapter.storageClasses = availableStorageClasses;
+
+                    const buffer = Buffer.alloc(0);
+                    const { dataSource, filePath } = await getDataSource(buffer, caseItem.dataSourceType);
+                    const key = `empty-file-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    let loaded = 0;
+
+                    {
+                        await qiniuAdapter.putObject(
+                            bucketRegionId,
+                            {
+                                bucket: bucketName,
+                                key: key,
+                            },
+                            dataSource,
+                            originalFileName,
+                            {
+                                contentType: 'application/octet-stream',
+                            },
+                            {
+                                progressCallback: (uploaded, total) => {
+                                    expect(total).to.at.least(buffer.length);
+                                    loaded = uploaded;
+                                },
+                                fileStreamSetting: filePath ? {
+                                    path: filePath,
+                                    start: 0,
+                                    end: Infinity,
+                                } : undefined,
+                            }
+                        );
+                        if (dataSource instanceof FileReadStream) {
+                            dataSource.close();
+                        }
+                        expect(loaded).to.at.least(buffer.length);
+                    }
+
+                    {
+                        const isExisted: boolean = await qiniuAdapter.isExists(
+                            bucketRegionId,
+                            { bucket: bucketName, key: key },
+                        );
+                        expect(isExisted).to.equal(true);
+                    }
+
+                    {
+                        const result = await qiniuAdapter.getObject(
+                            bucketRegionId,
+                            { bucket: bucketName, key: key },
+                        );
+                        expect(result.data).to.eql(buffer);
+                        expect(result.header.size).to.equal(buffer.length);
+                        expect(result.header.contentType).to.equal('application/octet-stream');
+                    }
+
+                    {
+                        await qiniuAdapter.deleteObject(
+                            bucketRegionId,
+                            { bucket: bucketName, key: key },
+                        );
+
+                        const isExisted = await qiniuAdapter.isExists(
+                            bucketRegionId,
+                            { bucket: bucketName, key: key },
+                        );
+                        expect(isExisted).to.equal(false);
+                    }
+                });
             });
 
             it('upload object by uploader and download by downloader', async () => {

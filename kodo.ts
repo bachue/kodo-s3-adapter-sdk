@@ -1177,7 +1177,7 @@ export class Kodo implements Adapter {
             return CRC32.unsigned(data);
         }
 
-        let result: Buffer;
+        let result: Buffer = CRC32(Buffer.alloc(0));
         const chunkStream = fs.createReadStream(data, { start, end });
         chunkStream.on('data', chunk => {
             result = CRC32(chunk, result);

@@ -6,7 +6,6 @@ import { AdapterOption } from './adapter';
 import { Region } from './region';
 import { RegionService } from './region_service';
 import { makeUploadToken, newUploadPolicy } from './kodo-auth';
-import { Throttle } from 'stream-throttle';
 import zlib from 'zlib';
 import { UplogBuffer, UplogEntry } from './uplog';
 import { HttpClient, RequestStats, URLRequestOptions } from './http-client';
@@ -25,8 +24,7 @@ export interface RequestOptions {
     form?: FormData;
     contentType?: string;
     headers?: { [headerName: string]: string; },
-    uploadProgress?: (uploaded: number, total: number) => void,
-    uploadThrottle?: Throttle,
+    abortSignal?: AbortSignal,
     stats?: RequestStats,
     appendAuthorization?: boolean,
 
@@ -77,10 +75,9 @@ export class KodoHttpClient {
             form: options.form,
             contentType: options.contentType,
             headers: options.headers,
-            uploadProgress: options.uploadProgress,
-            uploadThrottle: options.uploadThrottle,
             stats: options.stats,
             appendAuthorization: options.appendAuthorization,
+            abortSignal: options.abortSignal,
 
             // for uplog
             apiName: options.apiName,

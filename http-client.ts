@@ -1,7 +1,8 @@
 import http from 'http';
+import fs from 'fs';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import Agent from 'agentkeepalive';
-import { Throttle } from 'stream-throttle';
+import { Readable, Transform } from 'stream';
 import {
     ErrorType,
     GenRequestUplogEntry,
@@ -10,7 +11,6 @@ import {
     UplogBuffer,
 } from './uplog';
 import FormData from 'form-data';
-import { ReadableStreamBuffer } from 'stream-buffers';
 import { RequestInfo, ResponseInfo } from './adapter';
 import { generateAccessTokenV2, getXQiniuDate } from './kodo-auth';
 import { generateReqId } from './req_id';
@@ -51,14 +51,13 @@ export interface URLRequestOptions {
     method: HttpMethod;
     path?: string;
     query?: URLSearchParams;
-    data?: string | Buffer;
+    data?: string | Buffer | Readable;
     dataType?: string;
     form?: FormData;
     streaming?: boolean,
     contentType?: string;
     headers?: { [headerName: string]: string; },
-    uploadProgress?: (uploaded: number, total: number) => void,
-    uploadThrottle?: Throttle,
+    abortSignal?: AbortSignal,
     stats?: RequestStats,
 
     // uplog
@@ -68,8 +67,19 @@ export interface URLRequestOptions {
 }
 
 export class HttpClient {
-    private static readonly httpKeepaliveAgent = new Agent();
-    private static readonly httpsKeepaliveAgent = new Agent.HttpsAgent();
+    static readonly userCanceledError = new Error('User Canceled');
+    static readonly urlEmptyError = new Error('URL Empty');
+    static readonly httpKeepaliveAgent = new Agent();
+    static readonly httpsKeepaliveAgent = (() => {
+        const httpsAgent = new Agent.HttpsAgent();
+        // @ts-ignore
+        httpsAgent.on('keylog', (line: string) => {
+            if (process.env.SSLKEYLOGFILE) {
+                fs.appendFileSync(process.env.SSLKEYLOGFILE, line, { mode: 0o600 });
+            }
+        });
+        return httpsAgent;
+    })();
     private static readonly httpClient: HttpClient2 = new HttpClient2({
         // urllib index.d.ts not support agent and httpsAgent
         // @ts-ignore
@@ -83,10 +93,15 @@ export class HttpClient {
     }
 
     call<T = any>(urls: string[], options: URLRequestOptions): Promise<HttpClientResponse<T>> {
+        // check aborted
+        if (options.abortSignal?.aborted) {
+            return Promise.reject(HttpClient.userCanceledError);
+        }
+
         // check url
         const urlString: string | undefined = urls.shift();
         if (!urlString) {
-            return Promise.reject(new Error('urls is empty'));
+            return Promise.reject(HttpClient.urlEmptyError);
         }
         let url: URL;
         if (options.fullUrl ?? false) {
@@ -140,7 +155,12 @@ export class HttpClient {
                 streaming: options.streaming,
                 retry: this.clientOptions.retry,
                 retryDelay: this.clientOptions.retryDelay,
-                isRetry: this.isRetry,
+                isRetry: (res) => {
+                    if (options.abortSignal?.aborted) {
+                        return false;
+                    }
+                    return this.isRetry(res);
+                },
                 beforeRequest: (info) => {
                     if (options.stats) {
                         options.stats.requestsCount += 1;
@@ -151,43 +171,26 @@ export class HttpClient {
                         headers: info.headers,
                         data,
                     };
+                    if (options.abortSignal) {
+                        info.signal = options.abortSignal;
+                    }
                     this.clientOptions.requestCallback?.(requestInfo);
                 },
             };
             let callbackError: Error | undefined;
-            if (data) {
-                if (options.uploadProgress) {
-                    const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    stream.put(data);
-                    stream.stop();
-                    let uploaded = 0;
-                    const total = data.length;
-                    stream.on('data', (chunk) => {
-                        uploaded += chunk.length;
-                        try {
-                            options.uploadProgress?.(uploaded, total);
-                        } catch (err) {
-                            if (!stream.destroyed) {
-                                stream.destroy(err);
-                            }
-                            callbackError = err;
-
-                            reject(err);
-                        }
-                    });
-                    if (options.uploadThrottle) {
-                        requestOption.stream = stream.pipe(options.uploadThrottle);
-                    } else {
-                        requestOption.stream = stream;
+            let dataLength: number;
+            if (data instanceof Readable) {
+                dataLength = 0;
+                const dataLenCounter = new Transform({
+                    transform(chunk, _encoding, callback) {
+                        dataLength += chunk.length;
+                        callback(null, chunk);
                     }
-                } else if (options.uploadThrottle) {
-                    const stream = new ReadableStreamBuffer({ initialSize: data.length, chunkSize: 1 << 20 });
-                    stream.put(data);
-                    stream.stop();
-                    requestOption.stream = stream.pipe(options.uploadThrottle);
-                } else {
-                    requestOption.data = data;
-                }
+                });
+                requestOption.stream = data.pipe(dataLenCounter);
+            } else {
+                requestOption.data = data;
+                dataLength = data?.length ?? 0;
             }
 
             const uplogMaker = new GenRequestUplogEntry(
@@ -227,22 +230,19 @@ export class HttpClient {
                         return;
                     }
 
-                    const reqBody: Buffer = data instanceof Buffer
-                        ? data
-                        : Buffer.from(data ?? '');
                     if (response.status >= 200 && response.status < 400) {
                         const requestUplogEntry = uplogMaker.getRequestUplogEntry({
                             reqId: response.headers['x-reqid']?.toString(),
                             costDuration: responseInfo.interval,
                             // @ts-ignore
                             remoteIp: response.res.remoteAddress,
-                            bytesSent: reqBody.length,
+                            bytesSent: dataLength,
                             // @ts-ignore
                             bytesReceived: response.res.size,
                             statusCode: response.status,
                         });
                         if (options.stats) {
-                            options.stats.bytesTotalSent += reqBody.length;
+                            options.stats.bytesTotalSent += dataLength;
                             // @ts-ignore
                             options.stats.bytesTotalReceived += response.res.size;
                         }

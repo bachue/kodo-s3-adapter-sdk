@@ -117,28 +117,31 @@ export class Uploader {
         });
         let lastUploaded = 0;
         this.speedMonitor.start();
-        // send request
-        await this.adapter.putObject(
-            region,
-            object,
-            data,
-            originalFileName,
-            putFileOption?.header,
-            {
-                abortSignal: this.abortController?.signal,
-                fileStreamSetting: {
-                    path: filePath,
-                    start: 0,
-                    end: Infinity,
+        try {
+            // send request
+            await this.adapter.putObject(
+                region,
+                object,
+                data,
+                originalFileName,
+                putFileOption?.header,
+                {
+                    abortSignal: this.abortController?.signal,
+                    fileStreamSetting: {
+                        path: filePath,
+                        start: 0,
+                        end: Infinity,
+                    },
+                    progressCallback: (uploaded) => {
+                        this.speedMonitor?.updateProgress(uploaded - lastUploaded);
+                        lastUploaded = uploaded;
+                    },
                 },
-                progressCallback: (uploaded) => {
-                    this.speedMonitor?.updateProgress(uploaded - lastUploaded);
-                    lastUploaded = uploaded;
-                },
-            },
-        );
-        this.speedMonitor.destroy();
-        this.speedMonitor = undefined;
+            );
+        } finally {
+            this.speedMonitor.destroy();
+            this.speedMonitor = undefined;
+        }
     }
 
     private async multiplePartsUpload(
@@ -243,59 +246,62 @@ export class Uploader {
             progressCallback: putFileOption.putCallback?.progressCallback,
         });
 
-        for (let partNum = partNumber; partNum <= partsCount; partNum += 1) {
-            if (findPartsByNumber(recovered.parts, partNum)) {
-                continue;
-            }
+        try {
+            for (let partNum = partNumber; partNum <= partsCount; partNum += 1) {
+                if (findPartsByNumber(recovered.parts, partNum)) {
+                    continue;
+                }
 
-            this.speedMonitor.start();
-            const start = partSize * (partNum - 1);
-            const end = Math.min(
-                start + partSize - 1,
-                fileSize - 1,
-            );
-            const fileReader = this.getPutReader({
-                filePath,
-                start,
-                end,
-                putProgressError,
-                putFileOption,
-            });
+                this.speedMonitor.start();
+                const start = partSize * (partNum - 1);
+                const end = Math.min(
+                    start + partSize - 1,
+                    fileSize - 1,
+                );
+                const fileReader = this.getPutReader({
+                    filePath,
+                    start,
+                    end,
+                    putProgressError,
+                    putFileOption,
+                });
 
-            let lastUploaded = 0;
-            const uploadPartResp = await this.adapter.uploadPart(
-                region,
-                object,
-                recovered.uploadId,
-                partNum,
-                fileReader,
-                {
-                    abortSignal: this.abortController?.signal,
-                    fileStreamSetting: {
-                        path: filePath,
-                        start,
-                        end,
+                let lastUploaded = 0;
+                const uploadPartResp = await this.adapter.uploadPart(
+                    region,
+                    object,
+                    recovered.uploadId,
+                    partNum,
+                    fileReader,
+                    {
+                        abortSignal: this.abortController?.signal,
+                        fileStreamSetting: {
+                            path: filePath,
+                            start,
+                            end,
+                        },
+                        progressCallback: (uploaded) => {
+                            this.speedMonitor?.updateProgress(uploaded - lastUploaded);
+                            lastUploaded = uploaded;
+                        }
                     },
-                    progressCallback: (uploaded) => {
-                        this.speedMonitor?.updateProgress(uploaded - lastUploaded);
-                        lastUploaded = uploaded;
-                    }
-                },
-            );
-            if (this.chunkTimeoutTimer) {
-                clearTimeout(this.chunkTimeoutTimer);
-            }
-            this.speedMonitor.pause();
-            if (this.aborted) {
-                throw Uploader.userCanceledError;
-            }
+                );
+                if (this.chunkTimeoutTimer) {
+                    clearTimeout(this.chunkTimeoutTimer);
+                }
+                this.speedMonitor.pause();
+                if (this.aborted) {
+                    throw Uploader.userCanceledError;
+                }
 
-            const part: Part = { etag: uploadPartResp.etag, partNumber: partNum };
-            putFileOption?.putCallback?.partPutCallback?.(part);
-            recovered.parts.push(part);
+                const part: Part = { etag: uploadPartResp.etag, partNumber: partNum };
+                putFileOption?.putCallback?.partPutCallback?.(part);
+                recovered.parts.push(part);
+            }
+        } finally {
+            this.speedMonitor.destroy();
+            this.speedMonitor = undefined;
         }
-
-        this.speedMonitor.destroy();
     }
 
     private getChunkTimeoutMonitor(

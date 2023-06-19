@@ -862,7 +862,7 @@ export class Kodo implements Adapter {
         const response = await this.call({
             method: 'POST',
             serviceName: ServiceName.Rsf,
-            path: 'v2/list',
+            path: 'list',
             s3RegionId,
             query,
             dataType: 'multijson',
@@ -876,31 +876,36 @@ export class Kodo implements Adapter {
         delete results.nextContinuationToken;
 
         response.data.forEach((data: { [key: string]: any; }) => {
-            if (data.item) {
-                results.objects.push({
-                    bucket,
-                    key: data.item.key,
-                    size: data.item.fsize,
-                    lastModified: new Date(data.item.putTime / 10000),
-                    storageClass: this.convertStorageClass(
-                        data.item.type,
-                        'fileType',
-                        'kodoName',
-                        'unknown',
-                    ),
-                });
-            } else if (data.dir) {
-                results.commonPrefixes ??= [];
-                const foundDup = results.commonPrefixes.some(
-                    commonPrefix => commonPrefix.key === data.dir
-                );
-                if (!foundDup) {
-                    results.commonPrefixes.push({
+            // add objects;
+            if (data.items && data.items.length) {
+                results.objects = results.objects.concat(
+                    data.items.map((obj: any) => ({
                         bucket,
-                        key: data.dir,
-                    });
-                }
+                        key: obj.key,
+                        size: obj.fsize,
+                        lastModified: new Date(obj.putTime / 10000),
+                        storageClass: this.convertStorageClass(
+                            obj.type,
+                            'fileType',
+                            'kodoName',
+                            'unknown',
+                        ),
+                    }))
+                );
             }
+
+            // add commonPrefixes
+            if (data.commonPrefixes && data.commonPrefixes.length) {
+                results.commonPrefixes ??= []
+                results.commonPrefixes = results.commonPrefixes.concat(
+                    data.commonPrefixes.map((dir: string) => ({
+                        bucket,
+                        key: dir,
+                    }))
+                );
+            }
+
+            // change marker
             marker = data.marker;
         });
 

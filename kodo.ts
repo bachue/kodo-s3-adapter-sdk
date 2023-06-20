@@ -179,16 +179,13 @@ export class Kodo implements Adapter {
         if (!response.data) {
             return [];
         }
-        const regionsPromises: Promise<string | undefined>[] = response.data.map((info: any) => (
-            this.regionService
-                .fromKodoRegionIdToS3Id(
-                    info.region,
-                    this.getRegionRequestOptions(),
-                )
-                .catch(() => Promise.resolve())
-        ));
-        const regionsInfo = await Promise.all(regionsPromises);
-        return response.data.map((info: any, index: number) => {
+        const regions = await this.regionService.getAllRegions();
+        const kodoRegionIdToS3RegionId = regions.reduce((m, region) => {
+            m[region.id] = region.s3Id;
+            return m;
+        }, {} as Record<string, string>);
+
+        return response.data.map((info: any) => {
             let grantedPermission: string | undefined;
             switch (info.perm) {
                 case 1:
@@ -199,9 +196,10 @@ export class Kodo implements Adapter {
                     break;
             }
             return {
-                id: info.id, name: info.tbl,
+                id: info.id,
+                name: info.tbl,
                 createDate: new Date(info.ctime * 1000),
-                regionId: regionsInfo[index],
+                regionId: kodoRegionIdToS3RegionId[info.region],
                 grantedPermission,
             };
         });

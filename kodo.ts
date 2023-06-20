@@ -519,7 +519,7 @@ export class Kodo implements Adapter {
         }
 
         let url = new URL(`${domain.protocol}://${domain.name}`);
-        url.pathname = object.key;
+        url.pathname = encodeURI(object.key);
         if (domain.private) {
             url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
         }

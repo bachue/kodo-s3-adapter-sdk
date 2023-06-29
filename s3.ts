@@ -367,23 +367,32 @@ export class S3 extends Kodo {
         const s3 = await this.getClient();
         const data = await this.sendS3Request(s3.listBuckets(), 'listBuckets');
 
-        const bucketNamePromises: Promise<string>[] = data.Buckets!.map((info: any) => {
-            return this.fromS3BucketIdToKodoBucketName(info.Name);
-        });
-        const bucketLocationPromises: Promise<string | undefined>[] = data.Buckets!.map(async (info: any) => {
-            return await this._getBucketLocation(s3, info.Name).catch(() => undefined);
-        });
-        const [bucketNames, bucketLocations] = await Promise.all([
-            Promise.all(bucketNamePromises),
-            Promise.all(bucketLocationPromises),
-        ]);
+        if (!Array.isArray(data?.Buckets)) {
+            return [];
+        }
 
-        return data.Buckets!.map((info: any, index: number) => ({
-            id: info.Name,
-            name: bucketNames[index],
-            createDate: info.CreationDate,
-            regionId: bucketLocations[index],
-        }));
+        const concurrencyLimit = 200; // to avoid Error "too many pending task"
+
+        let result: Bucket[] = [];
+        for (let i = 0; i < data.Buckets.length; i += concurrencyLimit){
+            const segmentBuckets = data.Buckets.slice(i, i + concurrencyLimit);
+            const segmentResult: Bucket[] = await Promise.all(segmentBuckets.map(async (bucket) => {
+                const bucketS3Name = bucket.Name ?? '';
+                const [bucketName, bucketLocation] = await Promise.all([
+                    this.fromS3BucketIdToKodoBucketName(bucketS3Name),
+                    this._getBucketLocation(s3, bucketS3Name),
+                ]);
+                return {
+                    id: bucketS3Name,
+                    name: bucketName,
+                    createDate: bucket.CreationDate ?? new Date(0),
+                    regionId: bucketLocation,
+                };
+            }));
+            result = result.concat(segmentResult);
+        }
+
+        return result;
     }
 
     async listDomains(_s3RegionId: string, _bucket: string): Promise<Domain[]> {

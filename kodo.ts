@@ -164,6 +164,7 @@ export class Kodo implements Adapter {
 
     async listBuckets(): Promise<Bucket[]> {
         const bucketsQuery = new URLSearchParams();
+        // get all shared buckets. can't get read-only shared buckets if miss this parameter.
         bucketsQuery.set('shared', 'rd');
 
         const response = await this.call({

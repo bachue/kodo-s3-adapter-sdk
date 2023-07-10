@@ -164,6 +164,7 @@ export class Kodo implements Adapter {
 
     async listBuckets(): Promise<Bucket[]> {
         const bucketsQuery = new URLSearchParams();
+        // get all shared buckets. can't get read-only shared buckets if miss this parameter.
         bucketsQuery.set('shared', 'rd');
 
         const response = await this.call({
@@ -179,16 +180,13 @@ export class Kodo implements Adapter {
         if (!response.data) {
             return [];
         }
-        const regionsPromises: Promise<string | undefined>[] = response.data.map((info: any) => (
-            this.regionService
-                .fromKodoRegionIdToS3Id(
-                    info.region,
-                    this.getRegionRequestOptions(),
-                )
-                .catch(() => Promise.resolve())
-        ));
-        const regionsInfo = await Promise.all(regionsPromises);
-        return response.data.map((info: any, index: number) => {
+        const regions = await this.regionService.getAllRegions();
+        const kodoRegionIdToS3RegionId = regions.reduce((m, region) => {
+            m[region.id] = region.s3Id;
+            return m;
+        }, {} as Record<string, string>);
+
+        return response.data.map((info: any) => {
             let grantedPermission: string | undefined;
             switch (info.perm) {
                 case 1:
@@ -199,9 +197,10 @@ export class Kodo implements Adapter {
                     break;
             }
             return {
-                id: info.id, name: info.tbl,
+                id: info.id,
+                name: info.tbl,
                 createDate: new Date(info.ctime * 1000),
-                regionId: regionsInfo[index],
+                regionId: kodoRegionIdToS3RegionId[info.region],
                 grantedPermission,
             };
         });
@@ -521,7 +520,7 @@ export class Kodo implements Adapter {
         }
 
         let url = new URL(`${domain.protocol}://${domain.name}`);
-        url.pathname = object.key;
+        url.pathname = encodeURI(object.key);
         if (domain.private) {
             url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
         }
@@ -862,7 +861,7 @@ export class Kodo implements Adapter {
         const response = await this.call({
             method: 'POST',
             serviceName: ServiceName.Rsf,
-            path: 'v2/list',
+            path: 'list',
             s3RegionId,
             query,
             dataType: 'multijson',
@@ -876,31 +875,36 @@ export class Kodo implements Adapter {
         delete results.nextContinuationToken;
 
         response.data.forEach((data: { [key: string]: any; }) => {
-            if (data.item) {
-                results.objects.push({
-                    bucket,
-                    key: data.item.key,
-                    size: data.item.fsize,
-                    lastModified: new Date(data.item.putTime / 10000),
-                    storageClass: this.convertStorageClass(
-                        data.item.type,
-                        'fileType',
-                        'kodoName',
-                        'unknown',
-                    ),
-                });
-            } else if (data.dir) {
-                results.commonPrefixes ??= [];
-                const foundDup = results.commonPrefixes.some(
-                    commonPrefix => commonPrefix.key === data.dir
-                );
-                if (!foundDup) {
-                    results.commonPrefixes.push({
+            // add objects;
+            if (data.items && data.items.length) {
+                results.objects = results.objects.concat(
+                    data.items.map((obj: any) => ({
                         bucket,
-                        key: data.dir,
-                    });
-                }
+                        key: obj.key,
+                        size: obj.fsize,
+                        lastModified: new Date(obj.putTime / 10000),
+                        storageClass: this.convertStorageClass(
+                            obj.type,
+                            'fileType',
+                            'kodoName',
+                            'unknown',
+                        ),
+                    }))
+                );
             }
+
+            // add commonPrefixes
+            if (data.commonPrefixes && data.commonPrefixes.length) {
+                results.commonPrefixes ??= []
+                results.commonPrefixes = results.commonPrefixes.concat(
+                    data.commonPrefixes.map((dir: string) => ({
+                        bucket,
+                        key: dir,
+                    }))
+                );
+            }
+
+            // change marker
             marker = data.marker;
         });
 

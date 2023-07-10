@@ -555,7 +555,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                     const buffer = randomBytes(1 << 12);
                     const { dataSource, filePath } = await getDataSource(buffer, caseItem.dataSourceType);
-                    const key = `4k-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    const key = `4k-文件%-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                     let loaded = 0;
                     await qiniuAdapter.putObject(
                         bucketRegionId, { bucket: bucketName, key: key }, dataSource, originalFileName,

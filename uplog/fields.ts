@@ -113,7 +113,8 @@ export interface ErrorInfo {
 export function getErrorInfo(errorType: ErrorType, errorDescription: string) {
     return {
         error_type: errorType,
-        error_description: errorDescription,
+        // the uplog max length is 64KB. limit length to prevent too long.
+        error_description: errorDescription.substring(0, 4096),
     };
 }
 

@@ -269,8 +269,11 @@ export class Kodo implements Adapter {
             const domains: Domain[] = [];
             if (result.domain && result.protocol) {
                 domains.push({
-                    name: result.domain, protocol: result.protocol,
-                    type: 'normal', private: bucketResponse.data.private != 0,
+                    name: result.domain,
+                    protocol: result.protocol,
+                    type: 'normal',
+                    private: bucketResponse.data.private != 0,
+                    protected: bucketResponse.data.protected != 0,
                 });
             }
             return domains;
@@ -292,6 +295,7 @@ export class Kodo implements Adapter {
                 protocol: domain.protocol,
                 type: domain.type,
                 private: bucketResponse.data.private != 0,
+                protected: bucketResponse.data.protected != 0,
             }));
     }
 
@@ -521,7 +525,7 @@ export class Kodo implements Adapter {
 
         let url = new URL(`${domain.protocol}://${domain.name}`);
         url.pathname = encodeURI(object.key);
-        if (domain.private) {
+        if (domain.private || domain.protected) {
             url = signPrivateURL(this.adapterOption.accessKey, this.adapterOption.secretKey, url, deadline);
         }
         return url;

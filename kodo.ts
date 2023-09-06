@@ -279,6 +279,9 @@ export class Kodo implements Adapter {
             return domains;
         }
 
+        if (!domainResponse.data.domains) {
+            return [];
+        }
         return domainResponse.data.domains
             .filter((domain: any) => {
                 switch (domain.type) {
@@ -324,6 +327,9 @@ export class Kodo implements Adapter {
             // for uplog
             apiName: 'listBucketIdNames',
         });
+        if (!response.data) {
+            return [];
+        }
         return response.data.map((info: any) => ({
             id: info.id,
             name: info.tbl,
@@ -711,7 +717,7 @@ export class Kodo implements Adapter {
                     targetBucket: batch[0]?.getObject().bucket
                 });
                 let aborted = false;
-                const results: PartialObjectError[] = response.data.map((item: any, index: number) => {
+                const results: PartialObjectError[] = response.data?.map((item: any, index: number) => {
                     const currentIndex = firstIndexInCurrentBatch + index;
                     const result: PartialObjectError = batch[index].getObject();
                     let error: Error | undefined;
@@ -723,7 +729,7 @@ export class Kodo implements Adapter {
                         aborted = true;
                     }
                     return result;
-                });
+                }) ?? [];
                 if (aborted) {
                     throw new Error('aborted');
                 }
@@ -878,7 +884,7 @@ export class Kodo implements Adapter {
         let marker: string | undefined;
         delete results.nextContinuationToken;
 
-        response.data.forEach((data: { [key: string]: any; }) => {
+        response.data?.forEach((data: { [key: string]: any; }) => {
             // add objects;
             if (data.items && data.items.length) {
                 results.objects = results.objects.concat(

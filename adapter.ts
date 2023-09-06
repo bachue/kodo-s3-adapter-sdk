@@ -137,6 +137,7 @@ export interface Domain {
     name: string;
     protocol: string;
     private: boolean;
+    protected: boolean;
     type: 'normal' | 'pan' | 'test';
 }
 

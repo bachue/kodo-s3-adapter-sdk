@@ -62,8 +62,8 @@ export class S3 extends Kodo {
     private readonly bucketNameToIdCache: { [name: string]: string; } = {};
     private readonly bucketIdToNameCache: { [id: string]: string; } = {};
     private readonly clients: { [key: string]: AWS.S3; } = {};
-    private readonly bucketNameToIdCacheLock = new AsyncLock();
     private readonly clientsLock = new AsyncLock();
+    private listKodoBucketsPromise?: Promise<Bucket[]>;
 
     private async getClient(s3RegionId?: string): Promise<AWS.S3> {
         const cacheKey = s3RegionId ?? '';
@@ -106,17 +106,9 @@ export class S3 extends Kodo {
         if (this.bucketNameToIdCache[bucketName]) {
             return this.bucketNameToIdCache[bucketName];
         }
-        await this.bucketNameToIdCacheLock.acquire('all', async (): Promise<void> => {
-            if (this.bucketNameToIdCache[bucketName]) {
-                return;
-            }
-            const buckets = await super.listBucketIdNames();
-            buckets.forEach((bucket) => {
-                this.bucketNameToIdCache[bucket.name] = bucket.id;
-                this.bucketIdToNameCache[bucket.id] = bucket.name;
-            });
-            return;
-        });
+
+        await this.listKodoBuckets();
+
         if (this.bucketNameToIdCache[bucketName]) {
             return this.bucketNameToIdCache[bucketName];
         } else {
@@ -128,17 +120,8 @@ export class S3 extends Kodo {
         if (this.bucketIdToNameCache[bucketId]) {
             return this.bucketIdToNameCache[bucketId];
         }
-        await this.bucketNameToIdCacheLock.acquire('all', async (): Promise<void> => {
-            if (this.bucketIdToNameCache[bucketId]) {
-                return;
-            }
-            const buckets = await super.listBucketIdNames();
-            buckets.forEach((bucket) => {
-                this.bucketNameToIdCache[bucket.name] = bucket.id;
-                this.bucketIdToNameCache[bucket.id] = bucket.name;
-            });
-            return;
-        });
+
+        await this.listKodoBuckets();
 
         if (!this.bucketIdToNameCache[bucketId]) {
             throw new Error(`Cannot find bucket name of bucket ${bucketId}`);
@@ -370,6 +353,18 @@ export class S3 extends Kodo {
         return data.LocationConstraint!;
     }
 
+    private async listKodoBuckets(): Promise<Bucket[]> {
+        if (!this.listKodoBucketsPromise) {
+            this.listKodoBucketsPromise = super.listBuckets();
+        }
+        const buckets = await this.listKodoBucketsPromise;
+        buckets.forEach((bucket) => {
+            this.bucketNameToIdCache[bucket.name] = bucket.id;
+            this.bucketIdToNameCache[bucket.id] = bucket.name;
+        });
+        return buckets;
+    }
+
     async listBuckets(): Promise<Bucket[]> {
         const s3 = await this.getClient();
         const data = await this.sendS3Request(s3.listBuckets(), 'listBuckets');
@@ -378,6 +373,15 @@ export class S3 extends Kodo {
             return [];
         }
 
+        let kodoBucketsMap: Record<string, Bucket> = {};
+        try {
+            kodoBucketsMap = (await this.listKodoBuckets()).reduce((res, bucket) => {
+                res[bucket.id] = bucket;
+                return res;
+            }, kodoBucketsMap);
+        } catch (err) {
+            console.warn('S3 list buckets. Some info may be unavailable by kodo list bucket err', err);
+        }
         const concurrencyLimit = 200; // to avoid Error "too many pending task"
 
         let result: Bucket[] = [];
@@ -385,15 +389,13 @@ export class S3 extends Kodo {
             const segmentBuckets = data.Buckets.slice(i, i + concurrencyLimit);
             const segmentResult: Bucket[] = await Promise.all(segmentBuckets.map(async (bucket) => {
                 const bucketS3Name = bucket.Name ?? '';
-                const [bucketName, bucketLocation] = await Promise.all([
-                    this.fromS3BucketIdToKodoBucketName(bucketS3Name),
-                    this._getBucketLocation(s3, bucketS3Name),
-                ]);
+                const bucketLocation = await this._getBucketLocation(s3, bucketS3Name);
                 return {
                     id: bucketS3Name,
-                    name: bucketName,
+                    name: kodoBucketsMap[bucketS3Name].name,
                     createDate: bucket.CreationDate ?? new Date(0),
                     regionId: bucketLocation,
+                    remark: kodoBucketsMap[bucketS3Name].remark,
                 };
             }));
             result = result.concat(segmentResult);

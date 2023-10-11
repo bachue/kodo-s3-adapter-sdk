@@ -5,15 +5,15 @@ import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
-import { Semaphore } from 'semaphore-promise';
-import { RegionRequestOptions } from './region';
-import { RegionService } from './region_service';
-import { URL, URLSearchParams } from 'url';
-import { PassThrough, Readable, Transform } from 'stream';
-import { ReadableStreamBuffer } from 'stream-buffers';
-import { HttpClientResponse } from 'urllib';
-import { encode as base64Encode } from 'js-base64';
-import { base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL } from './kodo-auth';
+import {Semaphore} from 'semaphore-promise';
+import {RegionRequestOptions} from './region';
+import {RegionService} from './region_service';
+import {URL, URLSearchParams} from 'url';
+import {PassThrough, Readable, Transform} from 'stream';
+import {ReadableStreamBuffer} from 'stream-buffers';
+import {HttpClientResponse} from 'urllib';
+import {encode as base64Encode} from 'js-base64';
+import {base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL} from './kodo-auth';
 import {
     Adapter,
     AdapterOption,
@@ -40,9 +40,9 @@ import {
     TransferObject,
     UploadPartOutput,
 } from './adapter';
-import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
-import { RequestStats, URLRequestOptions } from './http-client';
-import { GenSdkApiUplogEntry, UplogEntry, ErrorType, SdkApiUplogEntry } from './uplog';
+import {KodoHttpClient, RequestOptions, ServiceName} from './kodo-http-client';
+import {RequestStats, URLRequestOptions} from './http-client';
+import {ErrorType, GenSdkApiUplogEntry, SdkApiUplogEntry, UplogEntry} from './uplog';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
@@ -203,6 +203,7 @@ export class Kodo implements Adapter {
                 createDate: new Date(info.ctime * 1000),
                 regionId: kodoRegionIdToS3RegionId[info.region],
                 grantedPermission,
+                remark: info.remark,
             };
         });
     }
@@ -338,6 +339,27 @@ export class Kodo implements Adapter {
             id: info.id,
             name: info.tbl,
         }));
+    }
+
+    async updateBucketRemark(bucket: string, remark: string): Promise<void> {
+        const queryParams = {
+            remark: undefined,
+        };
+        const bodyParams = {
+            remark,
+        };
+        await this.call({
+            method: 'PUT',
+            serviceName: ServiceName.Uc,
+            path: `buckets/${bucket}`,
+            query: queryParams,
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify(bodyParams),
+
+            // for uplog
+            apiName: 'updateBucketRemark'
+        });
     }
 
     async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {

@@ -1249,6 +1249,18 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(domains).to.be.empty;
                 }
             });
+
+            it('set remark', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+
+                const remark = 'kodo-s3-adapter-sdk-test-remark';
+                await qiniuAdapter.updateBucketRemark(bucketName, remark);
+
+                const buckets = await qiniuAdapter.listBuckets();
+                const bucket = buckets.find(bucket => bucket.name === bucketName);
+                expect(bucket?.remark === remark);
+            });
         });
     });
 });

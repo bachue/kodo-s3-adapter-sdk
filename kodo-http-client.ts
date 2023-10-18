@@ -1,7 +1,6 @@
 import AsyncLock from 'async-lock';
 import FormData from 'form-data';
 import { HttpClientResponse, HttpMethod } from 'urllib';
-import { URLSearchParams } from 'url';
 import { AdapterOption } from './adapter';
 import { Region } from './region';
 import { RegionService } from './region_service';
@@ -15,7 +14,7 @@ export type HttpProtocol = 'http' | 'https';
 export interface RequestOptions {
     method: HttpMethod;
     path?: string;
-    query?: URLSearchParams;
+    query?: Record<string, string | number | undefined>;
     bucketName?: string;
     s3RegionId?: string;
     serviceName: ServiceName;
@@ -159,8 +158,9 @@ export class KodoHttpClient {
     }
 
     private async sendUplog(logBuffer: Buffer): Promise<void> {
-        const query = new URLSearchParams();
-        query.set('compressed', 'gzip');
+        const query: Record<string, string> = {
+            compressed: 'gzip',
+        };
         const token = makeUploadToken(
             this.sharedOptions.accessKey,
             this.sharedOptions.secretKey,

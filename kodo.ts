@@ -163,9 +163,10 @@ export class Kodo implements Adapter {
     }
 
     async listBuckets(): Promise<Bucket[]> {
-        const bucketsQuery = new URLSearchParams();
-        // get all shared buckets. can't get read-only shared buckets if miss this parameter.
-        bucketsQuery.set('shared', 'rd');
+        const bucketsQuery = {
+            // get all shared buckets. can't get read-only shared buckets if miss this parameter.
+            shared: 'rd',
+        };
 
         const response = await this.call({
             method: 'GET',
@@ -207,17 +208,20 @@ export class Kodo implements Adapter {
     }
 
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
-        const domainsQuery = new URLSearchParams();
-        domainsQuery.set('sourceTypes', 'qiniuBucket');
-        domainsQuery.set('sourceQiniuBucket', bucket);
-        domainsQuery.set('operatingState', 'success');
-        domainsQuery.set('limit', '50');
+        const domainsQuery: Record<string, string | number> = {
+            sourceTypes: 'qiniuBucket',
+            sourceQiniuBucket: bucket,
+            operatingState: 'success',
+            limit: 50,
+        };
 
-        const getBucketInfoQuery = new URLSearchParams();
-        getBucketInfoQuery.set('bucket', bucket);
+        const getBucketInfoQuery = {
+            bucket,
+        };
 
-        const bucketDefaultDomainQuery = new URLSearchParams();
-        bucketDefaultDomainQuery.set('bucket', bucket);
+        const bucketDefaultDomainQuery = {
+            bucket,
+        };
 
         const promises = [
             this.call({
@@ -852,17 +856,18 @@ export class Kodo implements Adapter {
         results: ListedObjects,
         option?: ListObjectsOption,
     ): Promise<ListedObjects> {
-        const query = new URLSearchParams();
-        query.set('bucket', bucket);
-        query.set('prefix', prefix);
+        const query: Record<string, string> = {
+            bucket,
+            prefix,
+        };
         if (option?.nextContinuationToken) {
-            query.set('marker', option.nextContinuationToken);
+            query['marker'] = option.nextContinuationToken;
         }
         if (option?.maxKeys) {
-            query.set('limit', option.maxKeys.toString());
+            query['limit'] = option.maxKeys.toString();
         }
         if (option?.delimiter) {
-            query.set('delimiter', option.delimiter);
+            query['delimiter'] = option.delimiter;
         }
         const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,

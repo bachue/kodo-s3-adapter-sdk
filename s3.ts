@@ -1,6 +1,6 @@
 import dns from 'dns';
 import AsyncLock from 'async-lock';
-import AWS from 'aws-sdk';
+import AWS, { AWSError } from 'aws-sdk';
 import os from 'os';
 import fs from 'fs';
 import pkg from './package.json';
@@ -167,7 +167,7 @@ export class S3 extends Kodo {
         }
     }
 
-    private async sendS3Request<D, E>(
+    private async sendS3Request<D, E extends AWSError>(
         request: AWS.Request<D, E>,
         apiName: string,
         bucketName?: string,
@@ -175,7 +175,7 @@ export class S3 extends Kodo {
         isCreateStream?: false,
         options?: RequestOptions,
     ): Promise<D>
-    private async sendS3Request<D, E>(
+    private async sendS3Request<D, E extends AWSError>(
         request: AWS.Request<D, E>,
         apiName: string,
         bucketName?: string,
@@ -183,7 +183,7 @@ export class S3 extends Kodo {
         isCreateStream?: true,
         options?: RequestOptions,
     ): Promise<Readable>
-    private async sendS3Request<D, E>(
+    private async sendS3Request<D, E extends AWSError>(
         request: AWS.Request<D, E>,
         apiName: string,
         bucketName?: string,
@@ -317,7 +317,14 @@ export class S3 extends Kodo {
         return await new Promise<D>((resolve, reject) => {
             request.send((err, data) => {
                 if (err) {
-                    if (options.abortSignal?.aborted) {
+                    if (
+                        options.abortSignal?.aborted &&
+                        err.statusCode &&
+                        err.statusCode >= 200 &&
+                        err.statusCode < 300
+                    ) {
+                        resolve(data);
+                    } else if (options.abortSignal?.aborted) {
                         reject(HttpClient.userCanceledError);
                     } else {
                         reject(err);

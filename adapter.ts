@@ -13,6 +13,7 @@ export abstract class Adapter {
     abstract getBucketLocation(bucket: string): Promise<string>;
     abstract listBuckets(): Promise<Bucket[]>;
     abstract listDomains(region: string, bucket: string): Promise<Domain[]>;
+    abstract updateBucketRemark(bucket: string, remark: string): Promise<void>;
 
     abstract isExists(region: string, object: StorageObject): Promise<boolean>;
     abstract getFrozenInfo(region: string, object: StorageObject): Promise<FrozenInfo>;
@@ -131,6 +132,7 @@ export interface Bucket {
     createDate: Date;
     regionId?: string;
     grantedPermission?: 'readonly' | 'readwrite';
+    remark?: string;
 }
 
 export interface Domain {

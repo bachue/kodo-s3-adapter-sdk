@@ -50,7 +50,7 @@ export interface URLRequestOptions {
     appendAuthorization?: boolean;
     method: HttpMethod;
     path?: string;
-    query?: URLSearchParams;
+    query?: Record<string, string | number | undefined>;
     data?: string | Buffer | Readable;
     dataType?: string;
     form?: FormData;
@@ -367,9 +367,14 @@ export class HttpClient {
             }
         }
         if (options.query) {
-            options.query.forEach((value, name) => {
-                url.searchParams.append(name, value);
-            });
+            url.search = Object.entries(options.query).map(([name, value]) => {
+                // DO NOT use `!value` by '', 0, ... is valid.
+                if (value !== undefined) {
+                    return [name, value.toString()].join('=');
+                } else {
+                    return name;
+                }
+            }).join('&');
         }
         return url;
     }

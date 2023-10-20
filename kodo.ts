@@ -5,15 +5,15 @@ import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
-import { Semaphore } from 'semaphore-promise';
-import { RegionRequestOptions } from './region';
-import { RegionService } from './region_service';
-import { URL, URLSearchParams } from 'url';
-import { PassThrough, Readable, Transform } from 'stream';
-import { ReadableStreamBuffer } from 'stream-buffers';
-import { HttpClientResponse } from 'urllib';
-import { encode as base64Encode } from 'js-base64';
-import { base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL } from './kodo-auth';
+import {Semaphore} from 'semaphore-promise';
+import {RegionRequestOptions} from './region';
+import {RegionService} from './region_service';
+import {URL, URLSearchParams} from 'url';
+import {PassThrough, Readable, Transform} from 'stream';
+import {ReadableStreamBuffer} from 'stream-buffers';
+import {HttpClientResponse} from 'urllib';
+import {encode as base64Encode} from 'js-base64';
+import {base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL} from './kodo-auth';
 import {
     Adapter,
     AdapterOption,
@@ -40,9 +40,9 @@ import {
     TransferObject,
     UploadPartOutput,
 } from './adapter';
-import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
-import { RequestStats, URLRequestOptions } from './http-client';
-import { GenSdkApiUplogEntry, UplogEntry, ErrorType, SdkApiUplogEntry } from './uplog';
+import {KodoHttpClient, RequestOptions, ServiceName} from './kodo-http-client';
+import {RequestStats, URLRequestOptions} from './http-client';
+import {ErrorType, GenSdkApiUplogEntry, SdkApiUplogEntry, UplogEntry} from './uplog';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
@@ -163,9 +163,10 @@ export class Kodo implements Adapter {
     }
 
     async listBuckets(): Promise<Bucket[]> {
-        const bucketsQuery = new URLSearchParams();
-        // get all shared buckets. can't get read-only shared buckets if miss this parameter.
-        bucketsQuery.set('shared', 'rd');
+        const bucketsQuery = {
+            // get all shared buckets. can't get read-only shared buckets if miss this parameter.
+            shared: 'rd',
+        };
 
         const response = await this.call({
             method: 'GET',
@@ -202,22 +203,26 @@ export class Kodo implements Adapter {
                 createDate: new Date(info.ctime * 1000),
                 regionId: kodoRegionIdToS3RegionId[info.region],
                 grantedPermission,
+                remark: info.remark,
             };
         });
     }
 
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
-        const domainsQuery = new URLSearchParams();
-        domainsQuery.set('sourceTypes', 'qiniuBucket');
-        domainsQuery.set('sourceQiniuBucket', bucket);
-        domainsQuery.set('operatingState', 'success');
-        domainsQuery.set('limit', '50');
+        const domainsQuery: Record<string, string | number> = {
+            sourceTypes: 'qiniuBucket',
+            sourceQiniuBucket: bucket,
+            operatingState: 'success',
+            limit: 50,
+        };
 
-        const getBucketInfoQuery = new URLSearchParams();
-        getBucketInfoQuery.set('bucket', bucket);
+        const getBucketInfoQuery = {
+            bucket,
+        };
 
-        const bucketDefaultDomainQuery = new URLSearchParams();
-        bucketDefaultDomainQuery.set('bucket', bucket);
+        const bucketDefaultDomainQuery = {
+            bucket,
+        };
 
         const promises = [
             this.call({
@@ -334,6 +339,27 @@ export class Kodo implements Adapter {
             id: info.id,
             name: info.tbl,
         }));
+    }
+
+    async updateBucketRemark(bucket: string, remark: string): Promise<void> {
+        const queryParams = {
+            remark: undefined,
+        };
+        const bodyParams = {
+            remark,
+        };
+        await this.call({
+            method: 'PUT',
+            serviceName: ServiceName.Uc,
+            path: `buckets/${bucket}`,
+            query: queryParams,
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify(bodyParams),
+
+            // for uplog
+            apiName: 'updateBucketRemark'
+        });
     }
 
     async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {
@@ -852,17 +878,18 @@ export class Kodo implements Adapter {
         results: ListedObjects,
         option?: ListObjectsOption,
     ): Promise<ListedObjects> {
-        const query = new URLSearchParams();
-        query.set('bucket', bucket);
-        query.set('prefix', prefix);
+        const query: Record<string, string> = {
+            bucket,
+            prefix,
+        };
         if (option?.nextContinuationToken) {
-            query.set('marker', option.nextContinuationToken);
+            query['marker'] = option.nextContinuationToken;
         }
         if (option?.maxKeys) {
-            query.set('limit', option.maxKeys.toString());
+            query['limit'] = option.maxKeys.toString();
         }
         if (option?.delimiter) {
-            query.set('delimiter', option.delimiter);
+            query['delimiter'] = option.delimiter;
         }
         const newOption: ListObjectsOption = {
             delimiter: option?.delimiter,

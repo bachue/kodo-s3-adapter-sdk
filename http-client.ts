@@ -1,5 +1,6 @@
 import http from 'http';
 import fs from 'fs';
+import { parse as parseURL } from 'url';
 import { HttpClient2, HttpClientResponse, HttpMethod, RequestOptions2 } from 'urllib';
 import Agent from 'agentkeepalive';
 import { Readable, Transform } from 'stream';
@@ -350,7 +351,8 @@ export class HttpClient {
     }
 
     private makeUrl(base: string, options: URLRequestOptions): URL {
-        const url = new URL(base);
+        // the `parseURL` is consistent with the `urllib` library
+        const url = new URL(parseURL(base).href);
         if (options.path) {
             url.pathname = options.path;
         }
@@ -370,7 +372,7 @@ export class HttpClient {
             url.search = Object.entries(options.query).map(([name, value]) => {
                 // DO NOT use `!value` by '', 0, ... is valid.
                 if (value !== undefined) {
-                    return [name, value.toString()].join('=');
+                    return [encodeURIComponent(name), encodeURIComponent(value)].join('=');
                 } else {
                     return name;
                 }

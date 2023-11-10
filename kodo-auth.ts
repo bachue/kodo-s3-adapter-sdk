@@ -1,5 +1,5 @@
 import { createHmac, Hmac } from 'crypto';
-import { URL } from 'url';
+import { URL, parse as parseURL } from 'url';
 import { encode as base64Encode } from 'js-base64';
 import { StorageClass } from './adapter';
 
@@ -22,7 +22,8 @@ export function generateAccessTokenV2(
     headers?: Record<string, string>,
     requestBody?: string,
 ): string {
-    const url: URL = new URL(requestURI);
+    // the `parseURL` is consistent with the requests library
+    const url = new URL(parseURL(requestURI).href);
     let data = `${requestMethod} ${url.pathname}${url.search}\nHost: ${url.host}\n`;
 
     contentType = contentType ?? '';

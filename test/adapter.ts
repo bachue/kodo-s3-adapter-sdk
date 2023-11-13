@@ -513,6 +513,19 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 expect(listedObjects.objects).to.have.lengthOf(11);
                 expect(listedObjects.commonPrefixes).to.be.undefined;
             });
+
+            it('check url query', async () => {
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
+
+                const seed = Math.floor(Math.random() * (2 ** 64 - 1));
+                const baseKey = `10b-文件+${seed}`;
+                const key = `${baseKey}/test|adapter`; // the `+`, `|` should be url encode
+                await qiniuAdapter.putObject(bucketRegionId, { bucket: bucketName, key: key }, randomBytes(10), originalFileName);
+                const listedObjects = await qiniuAdapter.listObjects(bucketRegionId, bucketName, baseKey, { minKeys: 1 });
+                expect(listedObjects.objects).to.have.lengthOf(1);
+            });
         });
 
         context('objects upload / download', () => {

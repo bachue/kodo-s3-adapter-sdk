@@ -813,7 +813,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
 
                     const buffer = Buffer.alloc(0);
                     const { dataSource, filePath } = await getDataSource(buffer, caseItem.dataSourceType);
-                    const key = `empty-file-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                    const key = `empty-"file"-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
                     let loaded = 0;
 
                     {

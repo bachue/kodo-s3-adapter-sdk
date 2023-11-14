@@ -442,8 +442,13 @@ export class Kodo implements Adapter {
         form.append('crc32', crc32);
 
         const fileData = Kodo.wrapDataWithProgress(data, contentLength, option);
+        // Fix the bug of form-data lib
+        // https://html.spec.whatwg.org/#multipart-form-data
+        const escapeFileName = originalFileName.replace(/"/g, '%22')
+            .replace(/\r/g, '%0D')
+            .replace(/\n/g, '%0A');
         const fileOption: FormData.AppendOptions = {
-            filename: originalFileName,
+            filename: escapeFileName,
         };
         fileOption.contentType = header?.contentType;
         form.append('file', fileData, fileOption);

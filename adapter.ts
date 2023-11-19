@@ -140,7 +140,8 @@ export interface Domain {
     protocol: string;
     private: boolean;
     protected: boolean;
-    type: 'normal' | 'pan' | 'test';
+    type: 'cdn' | 'origin' | 'others';
+    apiScope: 'kodo' | 's3';
 }
 
 export interface FrozenInfo {

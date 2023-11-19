@@ -48,6 +48,7 @@ import {
     SdkApiUplogEntry,
 } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
+import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
 
@@ -404,8 +405,57 @@ export class S3 extends Kodo {
         return result;
     }
 
-    async listDomains(_s3RegionId: string, _bucket: string): Promise<Domain[]> {
-        return [];
+    async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+        const domainQuery: Record<string, string | number> = {
+            bucket,
+            type: 'all',
+        };
+        const domainResponse = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Uc,
+            path: 'domain',
+            query: domainQuery,
+            dataType: 'json',
+            s3RegionId,
+
+            // for uplog
+            apiName: 'queryDomain',
+            targetBucket: bucket,
+        });
+
+        if (!Array.isArray(domainResponse.data)) {
+            return [];
+        }
+
+        const typeMap: Record<string, Domain['type']> = {
+            cdn: 'cdn',
+            source: 'origin',
+        };
+        const shouldHttps = this.adapterOption.ucUrl?.startsWith('https');
+        const result: Domain[] = [];
+        domainResponse.data
+            .filter((domain: any) => domain.api_scope === 1)
+            .forEach((domain: any) => {
+            const resultItem: Domain = {
+                name: domain.domain,
+                protocol: shouldHttps ? 'https' : 'http',
+                type: 'others',
+                apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
+                private: true,
+                protected: false,
+            };
+            if (!domain.domain_types?.length) {
+                result.push(resultItem);
+                return;
+            }
+            for (const t of domain.domain_types) {
+                result.push({
+                    ...resultItem,
+                    type: typeMap[t],
+                });
+            }
+        });
+        return result;
     }
 
     async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {

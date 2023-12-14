@@ -378,14 +378,10 @@ export class S3 extends Kodo {
         }
 
         let kodoBucketsMap: Record<string, Bucket> = {};
-        try {
-            kodoBucketsMap = (await this.listKodoBuckets()).reduce((res, bucket) => {
-                res[bucket.id] = bucket;
-                return res;
-            }, kodoBucketsMap);
-        } catch (err) {
-            console.warn('S3 list buckets. Some info may be unavailable by kodo list bucket err', err);
-        }
+        kodoBucketsMap = (await this.listKodoBuckets()).reduce((res, bucket) => {
+            res[bucket.id] = bucket;
+            return res;
+        }, kodoBucketsMap);
         const concurrencyLimit = 200; // to avoid Error "too many pending task"
 
         let result: Bucket[] = [];

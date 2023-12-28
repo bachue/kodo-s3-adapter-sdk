@@ -237,6 +237,7 @@ export interface PutObjectOption {
     fileStreamSetting?: FileStreamSetting;
 
     progressCallback?: ProgressCallback;
+    beforeRequestCallback?: () => void;
 }
 
 export interface GetObjectStreamOption {

@@ -542,6 +542,9 @@ export class S3 extends Kodo {
             });
         }
 
+        // before request callback
+        option?.beforeRequestCallback?.();
+
         await this.sendS3Request(
             uploader,
             'putObject',
@@ -1302,8 +1305,11 @@ export class S3 extends Kodo {
             });
         }
 
+        // before request callback
+        option?.beforeRequestCallback?.();
+
         // send request
-        const respond: any = await this.sendS3Request(
+        const respond = await this.sendS3Request(
             uploader,
             'uploadPart',
             object.bucket,

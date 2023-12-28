@@ -487,6 +487,8 @@ export class Kodo implements Adapter {
         // fix form not instanceof readable, causing http client not upload as stream.
         const putData = form.pipe(new PassThrough());
 
+        // before request callback
+        option?.beforeRequestCallback?.();
         await this.call({
             method: 'POST',
             serviceName: ServiceName.Up,
@@ -1073,10 +1075,15 @@ export class Kodo implements Adapter {
             contentMd5 = await this.getContentMd5(data);
         }
 
+        // progress callback
         const putData = Kodo.wrapDataWithProgress(data, contentLength, option);
 
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
 
+        // before request callback
+        option?.beforeRequestCallback?.();
+
+        // send request
         const response = await this.call({
             method: 'PUT',
             serviceName: ServiceName.Up,

@@ -54,7 +54,13 @@ export class Region {
         readonly label?: string,
         readonly translatedLabels: { [lang: string]: string; } = {},
         readonly storageClasses: RegionStorageClass[] = [],
+        readonly ttl: number = 0,
+        readonly createTime: number = Date.now(),
     ) {}
+
+    get validate(): boolean {
+        return Date.now() < (this.createTime + this.ttl * 1000);
+    }
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
         const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
@@ -168,6 +174,7 @@ export class Region {
             r.description,
             translatedDescriptions,
             storageClasses,
+            r.ttl,
         );
         const domain2Url = (domain: string) => {
             const url = new URL(ucUrl);

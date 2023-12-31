@@ -104,6 +104,9 @@ export class Kodo implements Adapter {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
+        // FIXME: this will make all cache on Kodo instance not work.
+        //  already fixed region cache on RegionService itself.
+        //  need to check/fix others or refactoring the KodoScope implementation.
         const scope = new KodoScope(sdkApiName, this.adapterOption, {
             ...enterUplogOption,
             language: this.adapterOption.appNatureLanguage,

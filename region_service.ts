@@ -9,9 +9,11 @@ export interface S3IdEndpoint {
 
 export type GetAllRegionsOptions = RegionRequestOptions;
 
+const defaultCacheKey = "DEFAULT";
+const regionCache: Map<string, Region[]> = new Map<string, Region[]>();
+const queryRegionLock = new AsyncLock();
+
 export class RegionService {
-    private allRegions: Region[] | undefined = undefined;
-    private readonly allRegionsLock = new AsyncLock();
 
     constructor(private readonly adapterOption: AdapterOption) {
     }
@@ -20,15 +22,23 @@ export class RegionService {
         if (this.adapterOption.regions.length > 0) {
             return this.adapterOption.regions;
         }
-        if (this.allRegions && this.allRegions.length > 0) {
-            return this.allRegions;
+
+        const cacheKey = this.adapterOption.ucUrl ?? defaultCacheKey;
+
+        let regions = regionCache.get(cacheKey);
+        const isCacheValid = regions?.every(r => r.validate);
+        if (regions && isCacheValid) {
+            return regions;
         }
 
-        const regions = await this.allRegionsLock.acquire('all', (): Promise<Region[]> => {
-            if (this.allRegions && this.allRegions.length > 0) {
-                return Promise.resolve(this.allRegions);
+        regions = await queryRegionLock.acquire(cacheKey, async (): Promise<Region[]> => {
+            let regions = regionCache.get(cacheKey);
+            const isCacheValid = regions?.every(r => r.validate);
+            if (regions && isCacheValid) {
+                return regions;
             }
-            return Region.getAll({
+
+            return await Region.getAll({
                 accessKey: this.adapterOption.accessKey,
                 secretKey: this.adapterOption.secretKey,
                 ucUrl: this.adapterOption.ucUrl,
@@ -44,12 +54,12 @@ export class RegionService {
             });
         });
 
-        this.allRegions = regions;
+        regionCache.set(cacheKey, regions);
         return regions;
     }
 
     clearCache() {
-        this.allRegions = undefined;
+        regionCache.clear();
     }
 
     async getS3Endpoint(s3RegionId?: string, options?: GetAllRegionsOptions): Promise<S3IdEndpoint> {

@@ -136,6 +136,9 @@ export class S3 extends Kodo {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
+        // FIXME: this will make all cache on S3 instance not work.
+        //  already fixed region cache on RegionService itself.
+        //  need to check/fix others or refactoring the S3Scope implementation.
         const scope = new S3Scope(sdkApiName, this.adapterOption, {
             ...enterUplogOption,
             language: this.adapterOption.appNatureLanguage,

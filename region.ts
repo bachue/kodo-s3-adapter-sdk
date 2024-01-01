@@ -6,7 +6,12 @@ import { UplogBuffer } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo/region`;
-export const DEFAULT_UC_URL = 'https://uc.qbox.me';
+export const DEFAULT_UC_URL = 'https://uc.qiniuapi.com';
+export const DEFAULT_UC_BACKUP = [
+    'https://kodo-config.qiniuapi.com',
+    'https://uc.qbox.me',
+    'https://api.qiniu.com',
+];
 
 export interface RegionRequestOptions {
     timeout?: number | number[];
@@ -63,15 +68,17 @@ export class Region {
     }
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
-        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
-        const requestURL = new URL(`${ucUrl}/regions`);
+        const ucUrl = options.ucUrl
+            ? [options.ucUrl]
+            : [DEFAULT_UC_URL].concat(DEFAULT_UC_BACKUP);
+        const requestURL = ucUrl.map(url => new URL(`${url}/regions`));
         const uplogBuffer = new UplogBuffer({
             bufferSize: options.uplogBufferSize,
         });
         const httpClient = new HttpClient({
             accessKey: options.accessKey,
             secretKey: options.secretKey,
-            protocol: requestURL.protocol === 'https:' ? 'https' : 'http',
+            protocol: requestURL[0].protocol === 'https:' ? 'https' : 'http',
             timeout: options.timeout,
             userAgent: USER_AGENT,
             retry: options.retry,
@@ -84,7 +91,7 @@ export class Region {
             disableQiniuTimestampSignature: options.disableQiniuTimestampSignature,
         }, uplogBuffer);
 
-        return httpClient.call([requestURL.toString()], {
+        return httpClient.call(requestURL.map(url => url.toString()), {
             fullUrl: true,
             appendAuthorization: true,
             method: 'GET',
@@ -96,27 +103,35 @@ export class Region {
 
     static getAll(options: GetAllOptions): Promise<Region[]> {
         const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
+        const protocol = new URL(ucUrl).protocol;
 
         return Region.requestAll(options)
             .then((response) => {
                 response.data.regions ??= [];
-                const regions: Region[] = response.data.regions.map((r: any) => Region.fromResponseBody(ucUrl, r));
+                const regions: Region[] = response.data.regions.map(
+                    (r: any) => Region.fromResponseBody(protocol, r)
+                );
                 return regions;
             });
     }
 
     static query(options: QueryOptions): Promise<Region> {
-        const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
-        const requestURL = new URL(`${ucUrl}/v4/query`);
-        requestURL.searchParams.append('ak', options.accessKey);
-        requestURL.searchParams.append('bucket', options.bucketName);
+        const ucUrl = options.ucUrl
+            ? [options.ucUrl]
+            : [DEFAULT_UC_URL].concat(DEFAULT_UC_BACKUP);
+        const requestURL = ucUrl.map(url => {
+            const res = new URL(`${url}/regions`);
+            res.searchParams.append('ak', options.accessKey);
+            res.searchParams.append('bucket', options.bucketName);
+            return res;
+        });
 
         const uplogBuffer = new UplogBuffer({
             bufferSize: options.uplogBufferSize,
         });
         const httpClient = new HttpClient({
             accessKey: options.accessKey,
-            protocol: requestURL.protocol === 'https' ? 'https' : 'http',
+            protocol: requestURL[0].protocol === 'https' ? 'https' : 'http',
             timeout: options.timeout,
             userAgent: USER_AGENT,
             retry: options.retry,
@@ -129,7 +144,7 @@ export class Region {
         }, uplogBuffer);
 
         return new Promise((resolve, reject) => {
-            httpClient.call([requestURL.toString()], {
+            httpClient.call(requestURL.map(url => url.toString()), {
                 fullUrl: true,
                 appendAuthorization: false,
                 method: 'GET',
@@ -145,13 +160,13 @@ export class Region {
                     reject(error);
                     return;
                 }
-                const region: Region = Region.fromResponseBody(ucUrl, r);
+                const region: Region = Region.fromResponseBody(requestURL[0].protocol, r);
                 resolve(region);
             }, reject);
         });
     }
 
-    private static fromResponseBody(ucUrl: string, r: any): Region {
+    private static fromResponseBody(protocol: string, r: any): Region {
         const translatedDescriptions: { [lang: string]: string; } = {};
         for (const fieldName in r) {
             if (fieldName.startsWith('description_')) {
@@ -177,8 +192,7 @@ export class Region {
             r.ttl,
         );
         const domain2Url = (domain: string) => {
-            const url = new URL(ucUrl);
-            return new URL(`${url.protocol}//${domain}`).toString();
+            return new URL(`${protocol}//${domain}`).toString();
         };
         region.upUrls = r.up.domains.map(domain2Url);
         region.ucUrls = r.uc.domains.map(domain2Url);

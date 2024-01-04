@@ -9,7 +9,7 @@ export interface S3IdEndpoint {
 
 export type GetAllRegionsOptions = RegionRequestOptions;
 
-const defaultCacheKey = "DEFAULT";
+const defaultCacheKey = 'DEFAULT';
 const regionCache: Map<string, Region[]> = new Map<string, Region[]>();
 const queryRegionLock = new AsyncLock();
 
@@ -26,14 +26,14 @@ export class RegionService {
         const cacheKey = this.adapterOption.ucUrl ?? defaultCacheKey;
 
         let regions = regionCache.get(cacheKey);
-        const isCacheValid = regions?.every(r => r.validate);
+        const isCacheValid = regions?.every(r => r.validated);
         if (regions && isCacheValid) {
             return regions;
         }
 
         regions = await queryRegionLock.acquire(cacheKey, async (): Promise<Region[]> => {
-            let regions = regionCache.get(cacheKey);
-            const isCacheValid = regions?.every(r => r.validate);
+            const regions = regionCache.get(cacheKey);
+            const isCacheValid = regions?.every(r => r.validated);
             if (regions && isCacheValid) {
                 return regions;
             }

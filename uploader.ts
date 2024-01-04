@@ -177,7 +177,6 @@ export class Uploader {
             fileSize,
             uploaded,
             recovered,
-            partNumber: 1,
             partsCount,
             partSize,
             partMaxConcurrency,
@@ -232,7 +231,6 @@ export class Uploader {
         fileSize,
         uploaded,
         recovered,
-        partNumber,
         partsCount,
         partSize,
         partMaxConcurrency,
@@ -245,17 +243,12 @@ export class Uploader {
         fileSize: number,
         uploaded: number,
         recovered: RecoveredOption,
-        partNumber: number,
         partsCount: number,
         partSize: number,
         partMaxConcurrency: number,
         putProgressError: Ref<Error>,
         putFileOption: PutFileOption,
     }): Promise<void> {
-        if (partNumber > partsCount) {
-            return;
-        }
-
         if (this.aborted) {
             throw Uploader.userCanceledError;
         }
@@ -270,7 +263,7 @@ export class Uploader {
             const limiter = new Semaphore(partMaxConcurrency);
             const restPromise: Set<Promise<Part>> = new Set();
             let error: Error | null = null;
-            for (let partNum = partNumber; partNum <= partsCount; partNum += 1) {
+            for (let partNum = 1; partNum <= partsCount; partNum += 1) {
                 if (findPartsByNumber(recovered.parts, partNum)) {
                     continue;
                 }

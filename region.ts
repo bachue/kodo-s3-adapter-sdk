@@ -63,7 +63,7 @@ export class Region {
         readonly createTime: number = Date.now(),
     ) {}
 
-    get validate(): boolean {
+    get validated(): boolean {
         return Date.now() < (this.createTime + this.ttl * 1000);
     }
 
@@ -120,7 +120,7 @@ export class Region {
             ? [options.ucUrl]
             : [DEFAULT_UC_URL].concat(DEFAULT_UC_BACKUP);
         const requestURL = ucUrl.map(url => {
-            const res = new URL(`${url}/regions`);
+            const res = new URL(`${url}/v4/query`);
             res.searchParams.append('ak', options.accessKey);
             res.searchParams.append('bucket', options.bucketName);
             return res;

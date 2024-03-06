@@ -87,7 +87,6 @@ export class S3 extends Kodo {
                 accessKeyId: this.adapterOption.accessKey,
                 secretAccessKey: this.adapterOption.secretKey,
                 maxRetries: 10,
-                s3ForcePathStyle: true,
                 signatureVersion: 'v4',
                 useDualstack: true,
                 httpOptions: {

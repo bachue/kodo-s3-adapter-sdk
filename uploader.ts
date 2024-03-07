@@ -374,10 +374,10 @@ export class Uploader {
         errorRef: Ref<Error>,
     ): Transform {
         const checkNeedTimeout = () => {
-            if (this.aborted) {
+            if (this.aborted || !this.speedMonitor?.running) {
                 return;
             }
-            if (this.speedMonitor && this.speedMonitor.speed * 1000 >= 512) {
+            if (this.speedMonitor.speed * 1000 >= 512) {
                 this.chunkTimeoutTimer = setTimeout(checkNeedTimeout, chunkTimeout) as unknown as number;
                 return;
             }

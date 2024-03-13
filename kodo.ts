@@ -104,6 +104,9 @@ export class Kodo implements Adapter {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
+        // FIXME: this will make all cache on Kodo instance not work.
+        //  already fixed region cache on RegionService itself.
+        //  need to check/fix others or refactoring the KodoScope implementation.
         const scope = new KodoScope(sdkApiName, this.adapterOption, {
             ...enterUplogOption,
             language: this.adapterOption.appNatureLanguage,
@@ -210,10 +213,8 @@ export class Kodo implements Adapter {
 
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
         const domainsQuery: Record<string, string | number> = {
-            sourceTypes: 'qiniuBucket',
-            sourceQiniuBucket: bucket,
-            operatingState: 'success',
-            limit: 50,
+            bucket,
+            type: 'all',
         };
 
         const getBucketInfoQuery = {
@@ -227,7 +228,7 @@ export class Kodo implements Adapter {
         const promises = [
             this.call({
                 method: 'GET',
-                serviceName: ServiceName.Qcdn,
+                serviceName: ServiceName.Uc,
                 path: 'domain',
                 query: domainsQuery,
                 dataType: 'json',
@@ -236,6 +237,16 @@ export class Kodo implements Adapter {
                 // for uplog
                 apiName: 'queryDomain',
                 targetBucket: bucket,
+            }),
+            this.call({
+                method: 'GET',
+                serviceName: ServiceName.CentralApi,
+                path: 'cert/bindings',
+                dataType: 'json',
+                s3RegionId,
+
+                // for uplog
+                apiName: 'queryCert',
             }),
             this.call({
                 method: 'POST',
@@ -265,18 +276,31 @@ export class Kodo implements Adapter {
 
         const [
             domainResponse,
+            certResponse,
             bucketResponse,
             defaultDomainQuery,
         ] = await Promise.all(promises);
 
+        const typeMap: Record<string | number, Domain['type']> = {
+            // for uc domain
+            cdn: 'cdn',
+            source: 'origin',
+            // for portal domain/default/get
+            0: 'cdn',
+            1: 'origin',
+        };
+
         if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
-            const result = defaultDomainQuery.data;
+            const defautDomainData = defaultDomainQuery.data;
             const domains: Domain[] = [];
-            if (result.domain && result.protocol) {
+            if (defautDomainData.domain && defautDomainData.protocol) {
                 domains.push({
-                    name: result.domain,
-                    protocol: result.protocol,
-                    type: 'normal',
+                    name: defautDomainData.domain,
+                    protocol: defautDomainData.protocol,
+                    type: typeMap[defautDomainData.domainType]
+                        ? typeMap[defautDomainData.domainType]
+                        : 'others',
+                    apiScope: 'kodo',
                     private: bucketResponse.data.private != 0,
                     protected: bucketResponse.data.protected != 0,
                 });
@@ -284,27 +308,37 @@ export class Kodo implements Adapter {
             return domains;
         }
 
-        if (!domainResponse.data.domains) {
+        if (!Array.isArray(domainResponse.data)) {
             return [];
         }
-        return domainResponse.data.domains
-            .filter((domain: any) => {
-                switch (domain.type) {
-                    case 'normal':
-                    case 'pan':
-                    case 'test':
-                        return true;
-                    default:
-                        return false;
-                }
-            })
-            .map((domain: any) => ({
-                name: domain.name,
-                protocol: domain.protocol,
-                type: domain.type,
+        const domainShouldHttps: Record<string, boolean> = {};
+        if (certResponse.data) {
+            certResponse.data.forEach((cert: any) => {
+                domainShouldHttps[cert.domain] = true;
+            });
+        }
+        const result: Domain[] = [];
+        domainResponse.data.forEach((domain: any) => {
+            const resultItem: Domain = {
+                name: domain.domain,
+                protocol: domainShouldHttps[domain.domain] ? 'https' : 'http',
+                type: 'others',
+                apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
                 private: bucketResponse.data.private != 0,
                 protected: bucketResponse.data.protected != 0,
-            }));
+            };
+            if (!domain.domain_types?.length) {
+                result.push(resultItem);
+                return;
+            }
+            for (const t of domain.domain_types) {
+                result.push({
+                    ...resultItem,
+                    type: typeMap[t],
+                });
+            }
+        });
+        return result;
     }
 
     private async _listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
@@ -456,6 +490,8 @@ export class Kodo implements Adapter {
         // fix form not instanceof readable, causing http client not upload as stream.
         const putData = form.pipe(new PassThrough());
 
+        // before request callback
+        option?.beforeRequestCallback?.();
         await this.call({
             method: 'POST',
             serviceName: ServiceName.Up,
@@ -545,18 +581,6 @@ export class Kodo implements Adapter {
             if (domains.length === 0) {
                 throw new Error('no domain found');
             }
-            const domainTypeScope = (domain: Domain): number => {
-                switch (domain.type) {
-                    case 'normal':
-                        return 1;
-                    case 'pan':
-                        return 2;
-                    case 'test':
-                        return 3;
-                }
-            };
-            domains = domains.sort((domain1, domain2) => domainTypeScope(domain1) - domainTypeScope(domain2));
-
             domain = domains[0];
         }
 
@@ -1054,10 +1078,15 @@ export class Kodo implements Adapter {
             contentMd5 = await this.getContentMd5(data);
         }
 
+        // progress callback
         const putData = Kodo.wrapDataWithProgress(data, contentLength, option);
 
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
 
+        // before request callback
+        option?.beforeRequestCallback?.();
+
+        // send request
         const response = await this.call({
             method: 'PUT',
             serviceName: ServiceName.Up,

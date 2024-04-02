@@ -48,6 +48,7 @@ import {
     SdkApiUplogEntry,
 } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
+import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
 
@@ -86,7 +87,6 @@ export class S3 extends Kodo {
                 accessKeyId: this.adapterOption.accessKey,
                 secretAccessKey: this.adapterOption.secretKey,
                 maxRetries: 10,
-                s3ForcePathStyle: true,
                 signatureVersion: 'v4',
                 useDualstack: true,
                 httpOptions: {
@@ -135,6 +135,9 @@ export class S3 extends Kodo {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
+        // FIXME: this will make all cache on S3 instance not work.
+        //  already fixed region cache on RegionService itself.
+        //  need to check/fix others or refactoring the S3Scope implementation.
         const scope = new S3Scope(sdkApiName, this.adapterOption, {
             ...enterUplogOption,
             language: this.adapterOption.appNatureLanguage,
@@ -374,14 +377,10 @@ export class S3 extends Kodo {
         }
 
         let kodoBucketsMap: Record<string, Bucket> = {};
-        try {
-            kodoBucketsMap = (await this.listKodoBuckets()).reduce((res, bucket) => {
-                res[bucket.id] = bucket;
-                return res;
-            }, kodoBucketsMap);
-        } catch (err) {
-            console.warn('S3 list buckets. Some info may be unavailable by kodo list bucket err', err);
-        }
+        kodoBucketsMap = (await this.listKodoBuckets()).reduce((res, bucket) => {
+            res[bucket.id] = bucket;
+            return res;
+        }, kodoBucketsMap);
         const concurrencyLimit = 200; // to avoid Error "too many pending task"
 
         let result: Bucket[] = [];
@@ -404,8 +403,57 @@ export class S3 extends Kodo {
         return result;
     }
 
-    async listDomains(_s3RegionId: string, _bucket: string): Promise<Domain[]> {
-        return [];
+    async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+        const domainQuery: Record<string, string | number> = {
+            bucket,
+            type: 'all',
+        };
+        const domainResponse = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Uc,
+            path: 'domain',
+            query: domainQuery,
+            dataType: 'json',
+            s3RegionId,
+
+            // for uplog
+            apiName: 'queryDomain',
+            targetBucket: bucket,
+        });
+
+        if (!Array.isArray(domainResponse.data)) {
+            return [];
+        }
+
+        const typeMap: Record<string, Domain['type']> = {
+            cdn: 'cdn',
+            source: 'origin',
+        };
+        const shouldHttps = this.adapterOption.ucUrl?.startsWith('https');
+        const result: Domain[] = [];
+        domainResponse.data
+            .filter((domain: any) => domain.api_scope === 1)
+            .forEach((domain: any) => {
+            const resultItem: Domain = {
+                name: domain.domain,
+                protocol: shouldHttps ? 'https' : 'http',
+                type: 'others',
+                apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
+                private: true,
+                protected: false,
+            };
+            if (!domain.domain_types?.length) {
+                result.push(resultItem);
+                return;
+            }
+            for (const t of domain.domain_types) {
+                result.push({
+                    ...resultItem,
+                    type: typeMap[t],
+                });
+            }
+        });
+        return result;
     }
 
     async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {
@@ -491,6 +539,9 @@ export class S3 extends Kodo {
                 option.progressCallback?.(progress.loaded, progress.total);
             });
         }
+
+        // before request callback
+        option?.beforeRequestCallback?.();
 
         await this.sendS3Request(
             uploader,
@@ -650,20 +701,191 @@ export class S3 extends Kodo {
     }
 
     async copyObject(s3RegionId: string, transferObject: TransferObject): Promise<void> {
-        const [s3, storageClass, fromBucketId, toBucketId] = await Promise.all([
+        const { size, metadata } = await this.getObjectHeader(s3RegionId, transferObject.from);
+        const [
+            s3,
+            storageClass,
+            fromBucketId,
+            toBucketId,
+        ] = await Promise.all([
             this.getClient(s3RegionId),
             this.getObjectStorageClass(s3RegionId, transferObject.from),
             this.fromKodoBucketNameToS3BucketId(transferObject.from.bucket),
             this.fromKodoBucketNameToS3BucketId(transferObject.to.bucket),
         ]);
+        try {
+            return await this.copyObjectWhole({
+                s3,
+                storageClass,
+                fromBucketId,
+                fromKey: transferObject.from.key,
+                toBucketId,
+                toKey: transferObject.to.key,
+                fromBucketName: transferObject.from.bucket,
+            });
+        } catch (err) {
+            if (err.code !== 'CopyObjectTooLarge') {
+                throw err;
+            }
+            return await this.copyObjectMultipart({
+                s3,
+                storageClass,
+                fromBucketId,
+                fromKey: transferObject.from.key,
+                toBucketId,
+                toKey: transferObject.to.key,
+                size,
+                metadata,
+                fromBucketName: transferObject.from.bucket,
+            });
+        }
+    }
+
+    private async copyObjectWhole({
+        s3,
+        storageClass,
+        fromBucketId,
+        fromKey,
+        toBucketId,
+        toKey,
+        fromBucketName,
+    }: {
+        s3: AWS.S3,
+        storageClass?: string,
+        fromBucketId: string,
+        fromKey: string,
+        toBucketId: string,
+        toKey: string,
+        // uplog
+        fromBucketName: string,
+    }): Promise<void> {
         const params: AWS.S3.Types.CopyObjectRequest = {
             Bucket: toBucketId,
-            Key: transferObject.to.key,
-            CopySource: `/${fromBucketId}/${encodeURIComponent(transferObject.from.key)}`,
+            Key: toKey,
+            CopySource: `/${fromBucketId}/${encodeURIComponent(fromKey)}`,
             MetadataDirective: 'COPY',
             StorageClass: storageClass,
         };
-        await this.sendS3Request(s3.copyObject(params), 'copyObject', transferObject.from.bucket, transferObject.from.key);
+        await this.sendS3Request(s3.copyObject(params), 'copyObject', fromBucketName, fromKey);
+    }
+
+    private async copyObjectMultipart({
+        s3,
+        storageClass,
+        fromBucketId,
+        fromKey,
+        toBucketId,
+        toKey,
+        size,
+        partSize = 8 * (1 << 20),
+        metadata,
+        fromBucketName,
+    }: {
+        s3: AWS.S3,
+        storageClass?: string,
+        fromBucketId: string,
+        fromKey: string,
+        toBucketId: string,
+        toKey: string,
+        size: number,
+        partSize?: number,
+        metadata: Record<string, string>,
+        // uplog
+        fromBucketName: string,
+    }): Promise<void> {
+        const createParams: AWS.S3.CreateMultipartUploadRequest = {
+            Bucket: toBucketId,
+            Key: toKey,
+            StorageClass: storageClass,
+            Metadata: metadata,
+        };
+        const createRes = await this.sendS3Request(
+            s3.createMultipartUpload(createParams),
+            'createMultipartUpload',
+            fromBucketName,
+            fromKey,
+        );
+        if (!createRes.UploadId) {
+            throw new Error('Create upload id failed');
+        }
+
+        const parts: Part[] = [];
+        const _partSize = Math.max(
+            partSize,
+            Math.ceil(size / 10000),
+        );
+
+        const limiter = new Semaphore(10);
+        const restPromise: Set<Promise<AWS.S3.UploadPartCopyOutput>> = new Set();
+        let error: Error | null = null;
+        for (let offset = 0; offset < size; offset += _partSize) {
+            const releaseLimiter = await limiter.acquire();
+            if (error) {
+                throw error;
+            }
+            const end: number = Math.min(
+                offset + _partSize - 1,
+                size - 1,
+            );
+            const partNum = Math.floor(end / _partSize) + 1;
+            // left-close, right-close
+            const sourceRange = `bytes=${offset}-${end}`;
+            const partParams: AWS.S3.UploadPartCopyRequest = {
+                UploadId: createRes.UploadId,
+                Bucket: toBucketId,
+                Key: toKey,
+                CopySource: `/${fromBucketId}/${encodeURIComponent(fromKey)}`,
+                CopySourceRange: sourceRange,
+                PartNumber: partNum,
+            };
+            const p = this.sendS3Request(
+                s3.uploadPartCopy(partParams),
+                'uploadPartCopy',
+                fromBucketName,
+                fromKey,
+            );
+            restPromise.add(p);
+            p.then(partRes => {
+                restPromise.delete(p);
+                if (!partRes.CopyPartResult?.ETag) {
+                    error = new Error('Can not copy by lost copy part etag.');
+                    return;
+                }
+                parts.push({
+                    partNumber: partNum,
+                    etag: partRes.CopyPartResult.ETag,
+                });
+            })
+                .catch(err => {
+                    if (!error) {
+                        error = err;
+                    }
+                })
+                .finally(releaseLimiter);
+        }
+        await Promise.all(restPromise);
+        if (error) {
+            throw error;
+        }
+
+        parts.sort((part1, part2) => part1.partNumber - part2.partNumber);
+        const completeParams: AWS.S3.CompleteMultipartUploadRequest = {
+            Bucket: toBucketId,
+            Key: toKey,
+            UploadId: createRes.UploadId,
+            MultipartUpload: {
+                Parts: parts.map(p => ({
+                    PartNumber: p.partNumber,
+                    ETag: p.etag,
+                })),
+            },
+        };
+        await this.sendS3Request(
+            s3.completeMultipartUpload(completeParams),
+            'completeMultipartUpload',
+            fromBucketName,
+            fromKey,
+        );
     }
 
     private async getObjectStorageClass(s3RegionId: string, object: StorageObject): Promise<string | undefined> {
@@ -1081,8 +1303,11 @@ export class S3 extends Kodo {
             });
         }
 
+        // before request callback
+        option?.beforeRequestCallback?.();
+
         // send request
-        const respond: any = await this.sendS3Request(
+        const respond = await this.sendS3Request(
             uploader,
             'uploadPart',
             object.bucket,

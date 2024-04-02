@@ -123,6 +123,14 @@ export class SpeedMonitor extends EventEmitter {
         this.destroy = this.destroy.bind(this);
     }
 
+    get paused(): boolean {
+        return !this.timer;
+    }
+
+    get running(): boolean {
+        return !this.paused;
+    }
+
     /**
      * Bytes/ms
      */
@@ -139,10 +147,16 @@ export class SpeedMonitor extends EventEmitter {
     }
 
     start() {
+        if (this.running) {
+            return;
+        }
         this.timer = setInterval(this.handleProgress, this.interval) as unknown as number;
     }
 
     pause() {
+        if (this.paused) {
+            return;
+        }
         if (this.lastLoaded !== this._transferred) {
             this.handleProgress();
         }

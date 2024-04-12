@@ -99,6 +99,7 @@ export interface ListedObjects {
 export interface AdapterOption {
     accessKey: string;
     secretKey: string;
+    sessionToken?: string;
     regions: Region[];
     ucUrl?: string;
     appendedUserAgent?: string;

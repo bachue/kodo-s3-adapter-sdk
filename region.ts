@@ -12,6 +12,8 @@ export const DEFAULT_UC_BACKUP = [
     'https://uc.qbox.me',
     'https://api.qiniu.com',
 ];
+export const DEFAULT_PORTAL_URL = 'https://portal.qiniu.com';
+export const DEFAULT_API_URL = 'https://api.qiniuapi.com'
 
 export interface RegionRequestOptions {
     timeout?: number | number[];

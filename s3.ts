@@ -608,9 +608,23 @@ export class S3 extends Kodo {
         );
     }
 
-    async getObjectURL(s3RegionId: string, object: StorageObject, _domain?: Domain, deadline?: Date): Promise<URL> {
+    async getObjectURL(s3RegionId: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL> {
+        // if domain is not undefined, use the domain, else use the default s3 endpoint
+        const s3Promise: Promise<AWS.S3> = domain
+            ? Promise.resolve(new AWS.S3({
+                apiVersion: '2006-03-01',
+                region: s3RegionId,
+                endpoint: `${domain.protocol}://${domain.name}`,
+                credentials: {
+                    accessKeyId: this.adapterOption.accessKey,
+                    secretAccessKey: this.adapterOption.secretKey,
+                },
+                signatureVersion: 'v4',
+                s3BucketEndpoint: true,
+            }))
+            : this.getClient(s3RegionId);
         const [s3, bucketId] = await Promise.all([
-            this.getClient(s3RegionId),
+            s3Promise,
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const expires = deadline

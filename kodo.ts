@@ -293,7 +293,11 @@ export class Kodo implements Adapter {
         if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
             const defautDomainData = defaultDomainQuery.data;
             const domains: Domain[] = [];
-            if (defautDomainData.domain && defautDomainData.protocol) {
+            if (
+                defautDomainData.domain &&
+                defautDomainData.protocol &&
+                defautDomainData.isAvailable
+            ) {
                 domains.push({
                     name: defautDomainData.domain,
                     protocol: defautDomainData.protocol,
@@ -319,12 +323,18 @@ export class Kodo implements Adapter {
         }
         const result: Domain[] = [];
         domainResponse.data.forEach((domain: any) => {
+            if (
+                domain.domain === defaultDomainQuery.data.domain &&
+                !defaultDomainQuery.data.isAvailable
+            ) {
+                return
+            }
             const resultItem: Domain = {
                 name: domain.domain,
                 protocol: domainShouldHttps[domain.domain] ? 'https' : 'http',
                 type: 'others',
                 apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
-                private: bucketResponse.data.private != 0,
+                private: bucketResponse.data.private != 0 || domain.api_scope === 1,
                 protected: bucketResponse.data.protected != 0,
             };
             if (!domain.domain_types?.length) {

@@ -269,7 +269,7 @@ export class HttpClient {
                             options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
                         this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
-                            if (urls.length > 0) {
+                            if (urls.length > 0 && this.isRetry(response)) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
                                 reject(error);
@@ -305,7 +305,7 @@ export class HttpClient {
                             options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
                         this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
-                            if (urls.length > 0) {
+                            if (urls.length > 0 && this.isRetry(response)) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
                                 reject(error);
@@ -407,9 +407,31 @@ export class HttpClient {
     }
 
     private isRetry(response: HttpClientResponse<any>): boolean {
-        const dontRetryStatusCodes: number[] = [501, 579, 599, 608, 612, 614, 616,
-            618, 630, 631, 632, 640, 701];
-        return !response.headers['x-reqid'] ||
-            response.status >= 500 && !dontRetryStatusCodes.find((status) => status === response.status);
+        if (response.status > 0 && response.status < 500) {
+            return false;
+        }
+
+        const dontRetryStatusCodes: number[] = [
+            501,
+            509,
+            573,
+            579,
+            599,
+            608,
+            612,
+            614,
+            616,
+            618,
+            630,
+            631,
+            632,
+            640,
+            701,
+        ];
+        if (dontRetryStatusCodes.includes(response.status)) {
+            return false;
+        }
+
+        return true;
     }
 }

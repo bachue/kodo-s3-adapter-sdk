@@ -66,8 +66,8 @@ export class S3 extends Kodo {
     protected clientsLock = new AsyncLock();
     protected listKodoBucketsPromise?: Promise<Bucket[]>;
 
-    private async getClient(s3RegionId?: string): Promise<AWS.S3> {
-        const cacheKey = s3RegionId ?? '';
+    private async getClient(s3RegionId?: string, s3ForcePathStyle = true): Promise<AWS.S3> {
+        const cacheKey = [s3RegionId ?? '', s3ForcePathStyle ? 's3ForcePathStyle' : ''].join(':');
         if (this.clients[cacheKey]) {
             return this.clients[cacheKey];
         }
@@ -98,7 +98,8 @@ export class S3 extends Kodo {
                     agent: s3IdEndpoint.s3Endpoint.startsWith('https://')
                         ? HttpClient.httpsKeepaliveAgent
                         : HttpClient.httpKeepaliveAgent,
-                }
+                },
+                s3ForcePathStyle
             });
         });
         this.clients[cacheKey] = client;
@@ -624,10 +625,20 @@ export class S3 extends Kodo {
         );
     }
 
-    async getObjectURL(s3RegionId: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL> {
+    async getObjectURL(
+        s3RegionId: string,
+        object: StorageObject,
+        domain?: Domain,
+        deadline?: Date,
+        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'path',
+    ): Promise<URL> {
+        let s3Promise: Promise<AWS.S3>;
         // if domain is not undefined, use the domain, else use the default s3 endpoint
-        const s3Promise: Promise<AWS.S3> = domain
-            ? Promise.resolve(new AWS.S3({
+        if (domain) {
+            if (style !== 'bucketEndpoint') {
+                throw new Error('Custom S3 endpoint only support "bucketEndpoint" style');
+            }
+            s3Promise = Promise.resolve(new AWS.S3({
                 apiVersion: '2006-03-01',
                 region: s3RegionId,
                 endpoint: `${domain.protocol}://${domain.name}`,
@@ -636,9 +647,14 @@ export class S3 extends Kodo {
                     secretAccessKey: this.adapterOption.secretKey,
                 },
                 signatureVersion: 'v4',
-                s3BucketEndpoint: true,
-            }))
-            : this.getClient(s3RegionId);
+                s3BucketEndpoint: true, // use bucketEndpoint style
+            }));
+        } else {
+            if (style === 'bucketEndpoint') {
+                throw new Error('Default S3 endpoint not support "bucketEndpoint" style');
+            }
+            s3Promise = this.getClient(s3RegionId, style === 'path');
+        }
         const [s3, bucketId] = await Promise.all([
             s3Promise,
             this.fromKodoBucketNameToS3BucketId(object.bucket),

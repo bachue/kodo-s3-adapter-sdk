@@ -604,6 +604,7 @@ export class Kodo implements Adapter {
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
+        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'bucketEndpoint',
     ): Promise<URL> {
         if (!domain) {
             let domains = await this._listDomains(s3RegionId, object.bucket);
@@ -611,6 +612,10 @@ export class Kodo implements Adapter {
                 throw new Error('no domain found');
             }
             domain = domains[0];
+        }
+
+        if (style !== 'bucketEndpoint') {
+            throw new Error('Only support "bucketEndpoint" style for now');
         }
 
         let url = new URL(`${domain.protocol}://${domain.name}`);

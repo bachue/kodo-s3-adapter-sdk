@@ -32,7 +32,13 @@ export abstract class Adapter {
     abstract getObjectInfo(region: string, object: StorageObject): Promise<ObjectInfo>;
     abstract getObjectHeader(region: string, object: StorageObject, domain?: Domain): Promise<ObjectHeader>;
     abstract getObject(region: string, object: StorageObject, domain?: Domain): Promise<ObjectGetResult>;
-    abstract getObjectURL(region: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL>;
+    abstract getObjectURL(
+        region: string,
+        object: StorageObject,
+        domain?: Domain,
+        deadline?: Date,
+        style?: 'path' | 'virtualHost' | 'bucketEndpoint'
+    ): Promise<URL>;
     abstract getObjectStream(s3RegionId: string, object: StorageObject, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable>;
     abstract putObject(
         region: string,

@@ -51,6 +51,7 @@ import { HttpClient, RequestStats } from './http-client';
 import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
+import {HttpClientResponse} from "urllib";
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -425,18 +426,26 @@ export class S3 extends Kodo {
             bucket,
             type: 'all',
         };
-        const domainResponse = await this.call({
-            method: 'GET',
-            serviceName: ServiceName.Uc,
-            path: 'domain',
-            query: domainQuery,
-            dataType: 'json',
-            s3RegionId,
 
-            // for uplog
-            apiName: 'queryDomain',
-            targetBucket: bucket,
-        });
+        let domainResponse: HttpClientResponse<any>;
+        try {
+            domainResponse = await this.call({
+                method: 'GET',
+                serviceName: ServiceName.Uc,
+                path: 'domain',
+                query: domainQuery,
+                dataType: 'json',
+                s3RegionId,
+
+                // for uplog
+                apiName: 'queryDomain',
+                targetBucket: bucket,
+            });
+        } catch (err) {
+            // some server haven't this API. It will cause error.
+            // ignore it with an empty domain list.
+            return [];
+        }
 
         if (!Array.isArray(domainResponse.data)) {
             return [];

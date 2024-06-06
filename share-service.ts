@@ -126,6 +126,29 @@ export class ShareService {
         );
     }
 
+    async getApiHosts(portalHosts: string[]): Promise<string[]> {
+        const requestURL = portalHosts.map(url => `${new URL(url)}api/kodov2/shares/config`);
+        const res = await this.httpClient.call(
+            requestURL,
+            {
+                fullUrl: true,
+                appendAuthorization: false,
+                method: 'GET',
+                dataType: 'json',
+                apiName: 'getShareConfig',
+            }
+        );
+
+        if (res.status !== 200) {
+            if (isErrorResult(res.data)) {
+                throw new RequestBaseError(res.status, res.data.error);
+            }
+            throw new RequestBaseError(res.status);
+        }
+
+        return [res.data.apiHost];
+    }
+
     async createShare(options: CreateShareOptions): Promise<CreateShareResult> {
         if (!this.options.ak || !this.options.sk) {
             throw new AuthRequiredError('ak and sk required');

@@ -51,6 +51,7 @@ import { HttpClient, RequestStats } from './http-client';
 import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
+import {HttpClientResponse} from "urllib";
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -60,14 +61,14 @@ interface RequestOptions {
 }
 
 export class S3 extends Kodo {
-    private readonly bucketNameToIdCache: { [name: string]: string; } = {};
-    private readonly bucketIdToNameCache: { [id: string]: string; } = {};
-    private readonly clients: { [key: string]: AWS.S3; } = {};
-    private readonly clientsLock = new AsyncLock();
-    private listKodoBucketsPromise?: Promise<Bucket[]>;
+    protected bucketNameToIdCache: { [name: string]: string; } = {};
+    protected bucketIdToNameCache: { [id: string]: string; } = {};
+    protected clients: { [key: string]: AWS.S3; } = {};
+    protected clientsLock = new AsyncLock();
+    protected listKodoBucketsPromise?: Promise<Bucket[]>;
 
-    private async getClient(s3RegionId?: string): Promise<AWS.S3> {
-        const cacheKey = s3RegionId ?? '';
+    private async getClient(s3RegionId?: string, s3ForcePathStyle = true): Promise<AWS.S3> {
+        const cacheKey = [s3RegionId ?? '', s3ForcePathStyle ? 's3ForcePathStyle' : ''].join(':');
         if (this.clients[cacheKey]) {
             return this.clients[cacheKey];
         }
@@ -84,22 +85,31 @@ export class S3 extends Kodo {
                 computeChecksums: true,
                 region: s3IdEndpoint.s3Id,
                 endpoint: s3IdEndpoint.s3Endpoint,
-                accessKeyId: this.adapterOption.accessKey,
-                secretAccessKey: this.adapterOption.secretKey,
                 maxRetries: 10,
                 signatureVersion: 'v4',
                 useDualstack: true,
+                credentials: {
+                    accessKeyId: this.adapterOption.accessKey,
+                    secretAccessKey: this.adapterOption.secretKey,
+                    sessionToken: this.adapterOption.sessionToken,
+                },
                 httpOptions: {
                     connectTimeout: 30000,
                     timeout: 300000,
                     agent: s3IdEndpoint.s3Endpoint.startsWith('https://')
                         ? HttpClient.httpsKeepaliveAgent
                         : HttpClient.httpKeepaliveAgent,
-                }
+                },
+                s3ForcePathStyle
             });
         });
         this.clients[cacheKey] = client;
         return client;
+    }
+
+    addBucketNameIdCache(bucketName: string, bucketId: string): void {
+        this.bucketNameToIdCache[bucketName] = bucketId;
+        this.bucketIdToNameCache[bucketId] = bucketName;
     }
 
     async fromKodoBucketNameToS3BucketId(bucketName: string): Promise<string> {
@@ -135,13 +145,21 @@ export class S3 extends Kodo {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
-        // FIXME: this will make all cache on S3 instance not work.
-        //  already fixed region cache on RegionService itself.
-        //  need to check/fix others or refactoring the S3Scope implementation.
-        const scope = new S3Scope(sdkApiName, this.adapterOption, {
-            ...enterUplogOption,
-            language: this.adapterOption.appNatureLanguage,
-        });
+        const scope = new S3Scope(
+            sdkApiName,
+            this.adapterOption,
+            {
+                ...enterUplogOption,
+                language: this.adapterOption.appNatureLanguage,
+            },
+            {
+                bucketNameToIdCache: this.bucketNameToIdCache,
+                bucketIdToNameCache: this.bucketIdToNameCache,
+                clients: this.clients,
+                clientsLock: this.clientsLock,
+                listKodoBucketsPromise: this.listKodoBucketsPromise,
+            },
+        );
 
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
@@ -408,18 +426,26 @@ export class S3 extends Kodo {
             bucket,
             type: 'all',
         };
-        const domainResponse = await this.call({
-            method: 'GET',
-            serviceName: ServiceName.Uc,
-            path: 'domain',
-            query: domainQuery,
-            dataType: 'json',
-            s3RegionId,
 
-            // for uplog
-            apiName: 'queryDomain',
-            targetBucket: bucket,
-        });
+        let domainResponse: HttpClientResponse<any>;
+        try {
+            domainResponse = await this.call({
+                method: 'GET',
+                serviceName: ServiceName.Uc,
+                path: 'domain',
+                query: domainQuery,
+                dataType: 'json',
+                s3RegionId,
+
+                // for uplog
+                apiName: 'queryDomain',
+                targetBucket: bucket,
+            });
+        } catch (err) {
+            // some server haven't this API. It will cause error.
+            // ignore it with an empty domain list.
+            return [];
+        }
 
         if (!Array.isArray(domainResponse.data)) {
             return [];
@@ -608,10 +634,20 @@ export class S3 extends Kodo {
         );
     }
 
-    async getObjectURL(s3RegionId: string, object: StorageObject, domain?: Domain, deadline?: Date): Promise<URL> {
+    async getObjectURL(
+        s3RegionId: string,
+        object: StorageObject,
+        domain?: Domain,
+        deadline?: Date,
+        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'path',
+    ): Promise<URL> {
+        let s3Promise: Promise<AWS.S3>;
         // if domain is not undefined, use the domain, else use the default s3 endpoint
-        const s3Promise: Promise<AWS.S3> = domain
-            ? Promise.resolve(new AWS.S3({
+        if (domain) {
+            if (style !== 'bucketEndpoint') {
+                throw new Error('Custom S3 endpoint only support "bucketEndpoint" style');
+            }
+            s3Promise = Promise.resolve(new AWS.S3({
                 apiVersion: '2006-03-01',
                 region: s3RegionId,
                 endpoint: `${domain.protocol}://${domain.name}`,
@@ -620,9 +656,14 @@ export class S3 extends Kodo {
                     secretAccessKey: this.adapterOption.secretKey,
                 },
                 signatureVersion: 'v4',
-                s3BucketEndpoint: true,
-            }))
-            : this.getClient(s3RegionId);
+                s3BucketEndpoint: true, // use bucketEndpoint style
+            }));
+        } else {
+            if (style === 'bucketEndpoint') {
+                throw new Error('Default S3 endpoint not support "bucketEndpoint" style');
+            }
+            s3Promise = this.getClient(s3RegionId, style === 'path');
+        }
         const [s3, bucketId] = await Promise.all([
             s3Promise,
             this.fromKodoBucketNameToS3BucketId(object.bucket),
@@ -1451,6 +1492,14 @@ export class S3 extends Kodo {
     }
 }
 
+interface S3ScopeCachesOptions {
+    bucketNameToIdCache: Record<string, string>;
+    bucketIdToNameCache: Record<string, string>;
+    clients: Record<string, AWS.S3>;
+    clientsLock: AsyncLock;
+    listKodoBucketsPromise?: Promise<Bucket[]>;
+}
+
 class S3Scope extends S3 {
     private readonly requestStats: RequestStats;
     private readonly sdkUplogOption: SdkUplogOption;
@@ -1460,6 +1509,7 @@ class S3Scope extends S3 {
         sdkApiName: string,
         adapterOption: AdapterOption,
         sdkUplogOption: SdkUplogOption,
+        caches: S3ScopeCachesOptions,
     ) {
         super(adapterOption);
         this.sdkUplogOption = sdkUplogOption;
@@ -1469,6 +1519,11 @@ class S3Scope extends S3 {
             sdkApiName,
             requestsCount: 0,
         };
+        this.bucketNameToIdCache = caches.bucketNameToIdCache;
+        this.bucketIdToNameCache = caches.bucketIdToNameCache;
+        this.clients = caches.clients;
+        this.clientsLock = caches.clientsLock;
+        this.listKodoBucketsPromise = caches.listKodoBucketsPromise;
     }
 
     done(successful: boolean): Promise<void> {

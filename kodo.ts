@@ -46,14 +46,24 @@ import {ErrorType, GenSdkApiUplogEntry, SdkApiUplogEntry, UplogEntry} from './up
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
+interface KodoAdapterOption {
+    client: KodoHttpClient,
+    regionService: RegionService,
+}
+
 export class Kodo implements Adapter {
     storageClasses: StorageClass[] = [];
     protected readonly client: KodoHttpClient;
     protected readonly regionService: RegionService;
-    private readonly bucketDomainsCache: { [bucketName: string]: Domain[]; } = {};
-    private readonly bucketDomainsCacheLock = new AsyncLock();
+    protected bucketDomainsCache: Record<string, Domain[]> = {};
+    protected bucketDomainsCacheLock = new AsyncLock();
 
-    constructor(protected adapterOption: AdapterOption) {
+    constructor(protected adapterOption: AdapterOption, kodoAdapterOption?: KodoAdapterOption) {
+        if (kodoAdapterOption) {
+            this.client = kodoAdapterOption.client;
+            this.regionService = kodoAdapterOption.regionService;
+            return;
+        }
         let userAgent: string = USER_AGENT;
         if (adapterOption.appendedUserAgent) {
             userAgent += `/${adapterOption.appendedUserAgent}`;
@@ -104,13 +114,22 @@ export class Kodo implements Adapter {
         f: (scope: Adapter, options: RegionRequestOptions) => Promise<T>,
         enterUplogOption?: EnterUplogOption,
     ): Promise<T> {
-        // FIXME: this will make all cache on Kodo instance not work.
-        //  already fixed region cache on RegionService itself.
-        //  need to check/fix others or refactoring the KodoScope implementation.
-        const scope = new KodoScope(sdkApiName, this.adapterOption, {
-            ...enterUplogOption,
-            language: this.adapterOption.appNatureLanguage,
-        });
+        const scope = new KodoScope(
+            sdkApiName,
+            this.adapterOption,
+            {
+                client: this.client,
+                regionService: this.regionService,
+            },
+            {
+                ...enterUplogOption,
+                language: this.adapterOption.appNatureLanguage,
+            },
+            {
+                bucketDomainsCache: this.bucketDomainsCache,
+                bucketDomainsCacheLock: this.bucketDomainsCacheLock,
+            },
+        );
         try {
             const data = await f(scope, scope.getRegionRequestOptions());
             await scope.done(true);
@@ -585,6 +604,7 @@ export class Kodo implements Adapter {
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
+        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'bucketEndpoint',
     ): Promise<URL> {
         if (!domain) {
             let domains = await this._listDomains(s3RegionId, object.bucket);
@@ -592,6 +612,10 @@ export class Kodo implements Adapter {
                 throw new Error('no domain found');
             }
             domain = domains[0];
+        }
+
+        if (style !== 'bucketEndpoint') {
+            throw new Error('Only support "bucketEndpoint" style for now');
         }
 
         let url = new URL(`${domain.protocol}://${domain.name}`);
@@ -1276,6 +1300,11 @@ export class Kodo implements Adapter {
     }
 }
 
+interface KodoScopeCahcesOptions {
+    bucketDomainsCache: Record<string, Domain[]>,
+    bucketDomainsCacheLock: AsyncLock,
+}
+
 class KodoScope extends Kodo {
     private readonly requestStats: RequestStats;
     private readonly sdkUplogOption: SdkUplogOption;
@@ -1284,9 +1313,11 @@ class KodoScope extends Kodo {
     constructor(
         sdkApiName: string,
         adapterOption: AdapterOption,
+        kodoAdapterOption: KodoAdapterOption,
         sdkUplogOption: SdkUplogOption,
+        caches: KodoScopeCahcesOptions,
     ) {
-        super(adapterOption);
+        super(adapterOption, kodoAdapterOption);
         this.sdkUplogOption = sdkUplogOption;
         this.requestStats = {
             sdkApiName,
@@ -1294,6 +1325,8 @@ class KodoScope extends Kodo {
             bytesTotalSent: 0,
             bytesTotalReceived: 0,
         };
+        this.bucketDomainsCache = caches.bucketDomainsCache;
+        this.bucketDomainsCacheLock = caches.bucketDomainsCacheLock;
     }
 
     done(successful: boolean): Promise<void> {

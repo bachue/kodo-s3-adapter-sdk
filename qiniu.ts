@@ -25,6 +25,7 @@ export class Qiniu {
     constructor(
         private readonly accessKey: string,
         private readonly secretKey: string,
+        private readonly sessionToken?: string,
         private readonly ucUrl?: string,
         private readonly appendedUserAgent?: string,
         private readonly regions: Region[] = [],
@@ -39,6 +40,7 @@ export class Qiniu {
         return new adapter({
             accessKey: this.accessKey,
             secretKey: this.secretKey,
+            sessionToken: this.sessionToken,
             regions: this.regions,
             ucUrl: this.ucUrl,
             appendedUserAgent: this.appendedUserAgent,

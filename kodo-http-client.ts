@@ -2,7 +2,7 @@ import AsyncLock from 'async-lock';
 import FormData from 'form-data';
 import { HttpClientResponse, HttpMethod } from 'urllib';
 import { AdapterOption } from './adapter';
-import { Region } from './region';
+import { DEFAULT_PORTAL_URL, Region } from './region';
 import { RegionService } from './region_service';
 import { makeUploadToken, newUploadPolicy } from './kodo-auth';
 import zlib from 'zlib';
@@ -213,7 +213,7 @@ export class KodoHttpClient {
             case ServiceName.CentralApi:
                 return ['https://api.qiniuapi.com'];
             case ServiceName.Portal:
-                return ['https://portal.qiniu.com'];
+                return [DEFAULT_PORTAL_URL];
             case ServiceName.Uplog:
                 return ['http://uplog.qbox.me'];
         }

@@ -19,8 +19,10 @@ import {
     AdapterOption,
     BatchCallback,
     Bucket,
+    BucketDetails,
     DEFAULT_STORAGE_CLASS,
     Domain,
+    DomainWithoutShouldSign,
     EnterUplogOption,
     FrozenInfo,
     GetObjectStreamOption,
@@ -230,21 +232,72 @@ export class Kodo implements Adapter {
         });
     }
 
-    async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+    async getBucketInfo(s3RegionId: string, bucket: string): Promise<BucketDetails> {
+        const getBucketInfoQuery: Record<string, string | number> = {
+            bucket,
+        };
+
+        const response = await this.call({
+            method: 'POST',
+            serviceName: ServiceName.Uc,
+            path: 'v2/bucketInfo',
+            query: getBucketInfoQuery,
+            dataType: 'json',
+            s3RegionId,
+
+            // for uplog
+            apiName: 'queryBucket',
+            targetBucket: bucket,
+        });
+
+        return response.data;
+    }
+
+    async getCdnDomains(s3RegionId: string, bucket: string): Promise<DomainWithoutShouldSign[]> {
+        // DO NOT use uc service instead this to get CDN domains
+        // the uc service will not filter the domains, such as wildcard domain
+        const domainsQuery: Record<string, string | number> = {
+            sourceTypes: 'qiniuBucket',
+            sourceQiniuBucket: bucket,
+            operatingState: 'success',
+            limit: 50,
+        };
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.CentralApi,
+            path: 'domain',
+            query: domainsQuery,
+            dataType: 'json',
+            s3RegionId,
+
+            // for uplog
+            apiName: 'queryCdnDomains',
+        });
+
+        if (!Array.isArray(response.data.domains)) {
+            return [];
+        }
+
+        return response.data.domains
+            .filter((d: any) => ['normal', 'pan', 'test'].includes(d.type))
+            .map((d: any) => ({
+                name: d.name,
+                protocol: d.protocol,
+                type: 'cdn',
+                apiScope: 'kodo',
+            } as DomainWithoutShouldSign));
+    }
+
+    async getOriginDomains(s3RegionId: string, bucket: string): Promise<DomainWithoutShouldSign[]> {
         const domainsQuery: Record<string, string | number> = {
             bucket,
-            type: 'all',
+            type: 'source',
         };
 
-        const getBucketInfoQuery = {
-            bucket,
-        };
-
-        const bucketDefaultDomainQuery = {
-            bucket,
-        };
-
-        const promises = [
+        const [
+            domainResult,
+            certResult,
+        ] = await Promise.allSettled([
             this.call({
                 method: 'GET',
                 serviceName: ServiceName.Uc,
@@ -254,7 +307,7 @@ export class Kodo implements Adapter {
                 s3RegionId,
 
                 // for uplog
-                apiName: 'queryDomain',
+                apiName: 'queryOriginDomain',
                 targetBucket: bucket,
             }),
             this.call({
@@ -267,106 +320,125 @@ export class Kodo implements Adapter {
                 // for uplog
                 apiName: 'queryCert',
             }),
-            this.call({
-                method: 'POST',
-                serviceName: ServiceName.Uc,
-                path: 'v2/bucketInfo',
-                query: getBucketInfoQuery,
-                dataType: 'json',
-                s3RegionId,
+        ]);
 
-                // for uplog
-                apiName: 'queryBucket',
-                targetBucket: bucket,
-            }),
-            this.call({
-                method: 'GET',
-                serviceName: ServiceName.Portal,
-                path: 'api/kodov2/domain/default/get',
-                query: bucketDefaultDomainQuery,
-                dataType: 'json',
-                s3RegionId,
-
-                // for uplog
-                apiName: 'queryDefaultDomain',
-                targetBucket: bucket,
-            }),
-        ];
-
-        const [
-            domainResponse,
-            certResponse,
-            bucketResponse,
-            defaultDomainQuery,
-        ] = await Promise.all(promises);
-
-        const typeMap: Record<string | number, Domain['type']> = {
-            // for uc domain
-            cdn: 'cdn',
-            source: 'origin',
-            // for portal domain/default/get
-            0: 'cdn',
-            1: 'origin',
-        };
-
-        if (bucketResponse.data.perm && bucketResponse.data.perm > 0) {
-            const defautDomainData = defaultDomainQuery.data;
-            const domains: Domain[] = [];
-            if (
-                defautDomainData.domain &&
-                defautDomainData.protocol &&
-                defautDomainData.isAvailable
-            ) {
-                domains.push({
-                    name: defautDomainData.domain,
-                    protocol: defautDomainData.protocol,
-                    type: typeMap[defautDomainData.domainType]
-                        ? typeMap[defautDomainData.domainType]
-                        : 'others',
-                    apiScope: 'kodo',
-                    private: bucketResponse.data.private != 0,
-                    protected: bucketResponse.data.protected != 0,
-                });
-            }
-            return domains;
-        }
-
-        if (!Array.isArray(domainResponse.data)) {
+        if (
+            domainResult.status === 'rejected' ||
+            !Array.isArray(domainResult.value.data)
+        ) {
             return [];
         }
+
         const domainShouldHttps: Record<string, boolean> = {};
-        if (certResponse.data) {
-            certResponse.data.forEach((cert: any) => {
+        if (
+            certResult.status === 'fulfilled' &&
+            Array.isArray(certResult.value.data)
+        ) {
+            certResult.value.data.forEach((cert: any) => {
                 domainShouldHttps[cert.domain] = true;
             });
         }
-        const result: Domain[] = [];
-        domainResponse.data.forEach((domain: any) => {
-            if (
-                domain.domain === defaultDomainQuery.data.domain &&
-                !defaultDomainQuery.data.isAvailable
-            ) {
-                return
-            }
-            const resultItem: Domain = {
+
+        return domainResult.value.data
+            .map((domain: any) => ({
                 name: domain.domain,
                 protocol: domainShouldHttps[domain.domain] ? 'https' : 'http',
-                type: 'others',
+                type: 'origin',
                 apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
-                private: bucketResponse.data.private != 0 || domain.api_scope === 1,
-                protected: bucketResponse.data.protected != 0,
-            };
-            if (!domain.domain_types?.length) {
-                result.push(resultItem);
-                return;
+            }));
+    }
+
+    async getDefaultDomains(s3RegionId: string, bucket: string): Promise<DomainWithoutShouldSign[]> {
+        const bucketDefaultDomainQuery: Record<string, string | number> = {
+            bucket,
+        };
+        const response = await this.call({
+            method: 'GET',
+            serviceName: ServiceName.Portal,
+            path: 'api/kodov2/domain/default/get',
+            query: bucketDefaultDomainQuery,
+            dataType: 'json',
+            s3RegionId,
+
+            // for uplog
+            apiName: 'queryDefaultDomain',
+            targetBucket: bucket,
+        });
+
+        const typeMap: Record<string | number, DomainWithoutShouldSign['type']> = {
+            0: 'cdn',
+            1: 'origin',
+        };
+        const defautDomainData = response.data;
+        const domains: DomainWithoutShouldSign[] = [];
+        if (
+            defautDomainData.domain &&
+            defautDomainData.protocol &&
+            defautDomainData.isAvailable &&
+            defautDomainData.apiScope === 0
+        ) {
+            domains.push({
+                name: defautDomainData.domain,
+                protocol: defautDomainData.protocol,
+                type: typeMap[defautDomainData.domainType]
+                    ? typeMap[defautDomainData.domainType]
+                    : 'others',
+                apiScope: defautDomainData.apiScope === 0 ? 'kodo' : 's3',
+            });
+        }
+        return domains;
+    }
+
+    async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
+        const [
+            bucketInfoResult,
+            defaultDomainsResult,
+        ] = await Promise.allSettled([
+            this.getBucketInfo(s3RegionId, bucket),
+            this.getDefaultDomains(s3RegionId, bucket),
+        ]);
+
+        // handle kodo share bucket
+        if (
+            bucketInfoResult.status === "fulfilled" &&
+            bucketInfoResult.value.perm &&
+            bucketInfoResult.value.perm > 0
+        ) {
+            if (defaultDomainsResult.status === "rejected") {
+                return [];
             }
-            for (const t of domain.domain_types) {
-                result.push({
-                    ...resultItem,
-                    type: typeMap[t],
-                });
+            return defaultDomainsResult.value
+                // s3 domain is not avaliable with kodo share bucket
+                .filter(d => d.apiScope === "kodo")
+                .map(d => ({
+                    ...d,
+                    private: bucketInfoResult.value.private !== 0 || d.apiScope === "s3",
+                    protected: bucketInfoResult.value.protected !== 0,
+                }));
+        }
+
+        // handle normal bucket
+        const domainsResults = await Promise.allSettled([
+            this.getCdnDomains(s3RegionId, bucket),
+            this.getOriginDomains(s3RegionId, bucket),
+        ]);
+
+        let result: Domain[] = [];
+
+        domainsResults.forEach(domainsResult => {
+            if (domainsResult.status === "fulfilled") {
+                result = result.concat(domainsResult.value.map(d => ({
+                    ...d,
+                    private: bucketInfoResult.status === "rejected"
+                        ? true
+                        : bucketInfoResult.value?.private !== 0 || d.apiScope === "s3",
+                    protected: bucketInfoResult.status === "rejected"
+                        ? true
+                        : bucketInfoResult.value?.protected !== 0,
+                })));
             }
         });
+
         return result;
     }
 

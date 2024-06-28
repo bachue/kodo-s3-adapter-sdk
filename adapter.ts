@@ -142,6 +142,13 @@ export interface Bucket {
     remark?: string;
 }
 
+export interface BucketDetails {
+    perm: number,
+    private: number,
+    protected: number,
+    // still have others fields but not list in here
+}
+
 export interface Domain {
     name: string;
     protocol: string;
@@ -150,6 +157,7 @@ export interface Domain {
     type: 'cdn' | 'origin' | 'others';
     apiScope: 'kodo' | 's3';
 }
+export type DomainWithoutShouldSign = Omit<Domain, 'private' | 'protected'>
 
 export interface FrozenInfo {
     status: FrozenStatus;

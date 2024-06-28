@@ -1,15 +1,15 @@
 import dns from 'dns';
 import AsyncLock from 'async-lock';
-import AWS, { AWSError } from 'aws-sdk';
+import AWS, {AWSError} from 'aws-sdk';
 import os from 'os';
 import fs from 'fs';
 import pkg from './package.json';
 import md5 from 'js-md5';
-import { URL } from 'url';
-import { PassThrough, Readable, Writable } from 'stream';
-import { Semaphore } from 'semaphore-promise';
-import { Kodo } from './kodo';
-import { ReadableStreamBuffer } from 'stream-buffers';
+import {URL} from 'url';
+import {PassThrough, Readable, Writable} from 'stream';
+import {Semaphore} from 'semaphore-promise';
+import {Kodo} from './kodo';
+import {ReadableStreamBuffer} from 'stream-buffers';
 import {
     Adapter,
     AdapterOption,
@@ -47,10 +47,10 @@ import {
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
-import { HttpClient, RequestStats } from './http-client';
-import { ServiceName } from './kodo-http-client';
-import { RegionRequestOptions } from './region';
-import { generateReqId } from './req_id';
+import {HttpClient, RequestStats} from './http-client';
+import {ServiceName} from './kodo-http-client';
+import {RegionRequestOptions} from './region';
+import {generateReqId} from './req_id';
 import {HttpClientResponse} from "urllib";
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
@@ -424,7 +424,7 @@ export class S3 extends Kodo {
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
         const domainQuery: Record<string, string | number> = {
             bucket,
-            type: 'all',
+            type: 'source',
         };
 
         let domainResponse: HttpClientResponse<any>;
@@ -451,35 +451,17 @@ export class S3 extends Kodo {
             return [];
         }
 
-        const typeMap: Record<string, Domain['type']> = {
-            cdn: 'cdn',
-            source: 'origin',
-        };
         const shouldHttps = this.adapterOption.ucUrl?.startsWith('https');
-        const result: Domain[] = [];
-        domainResponse.data
+        return domainResponse.data
             .filter((domain: any) => domain.api_scope === 1)
-            .forEach((domain: any) => {
-            const resultItem: Domain = {
+            .map((domain: any) => ({
                 name: domain.domain,
                 protocol: shouldHttps ? 'https' : 'http',
-                type: 'others',
+                type: 'origin',
                 apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
                 private: true,
                 protected: false,
-            };
-            if (!domain.domain_types?.length) {
-                result.push(resultItem);
-                return;
-            }
-            for (const t of domain.domain_types) {
-                result.push({
-                    ...resultItem,
-                    type: typeMap[t],
-                });
-            }
-        });
-        return result;
+            }));
     }
 
     async isExists(s3RegionId: string, object: StorageObject): Promise<boolean> {

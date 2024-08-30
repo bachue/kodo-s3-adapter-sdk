@@ -312,7 +312,7 @@ export class Kodo implements Adapter {
             }),
             this.call({
                 method: 'GET',
-                serviceName: ServiceName.CentralApi,
+                serviceName: ServiceName.Uc,
                 path: 'cert/bindings',
                 dataType: 'json',
                 s3RegionId,

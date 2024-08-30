@@ -1259,7 +1259,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 if (mode === KODO_MODE) {
                     expect(domains).to.have.lengthOf.at.least(1);
                 } else {
-                    expect(domains).to.be.empty;
+                    expect(domains).to.have.lengthOf.at.least(1);
                 }
             });
 

@@ -1,15 +1,15 @@
 import dns from 'dns';
 import AsyncLock from 'async-lock';
-import AWS, {AWSError} from 'aws-sdk';
+import AWS, { AWSError } from 'aws-sdk';
 import os from 'os';
 import fs from 'fs';
 import pkg from './package.json';
 import md5 from 'js-md5';
-import {URL} from 'url';
-import {PassThrough, Readable, Writable} from 'stream';
-import {Semaphore} from 'semaphore-promise';
-import {Kodo} from './kodo';
-import {ReadableStreamBuffer} from 'stream-buffers';
+import { URL } from 'url';
+import { PassThrough, Readable, Writable } from 'stream';
+import { Semaphore } from 'semaphore-promise';
+import { Kodo } from './kodo';
+import { ReadableStreamBuffer } from 'stream-buffers';
 import {
     Adapter,
     AdapterOption,
@@ -47,11 +47,11 @@ import {
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
-import {HttpClient, RequestStats} from './http-client';
-import {ServiceName} from './kodo-http-client';
-import {RegionRequestOptions} from './region';
-import {generateReqId} from './req_id';
-import {HttpClientResponse} from "urllib";
+import { HttpClient, RequestStats } from './http-client';
+import { ServiceName } from './kodo-http-client';
+import { RegionRequestOptions } from './region';
+import { generateReqId } from './req_id';
+import { HttpClientResponse } from 'urllib';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 

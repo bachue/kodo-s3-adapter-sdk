@@ -106,51 +106,81 @@ export class KodoHttpClient {
         } else {
             key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
         }
-        if (this.regionsCache[key]) {
+        if (this.regionsCache[key]?.validated) {
             return this.getUrlsFromRegion(serviceName, this.regionsCache[key]);
         }
         const region: Region = await this.regionsCacheLock.acquire(key, async (): Promise<Region> => {
-            if (this.regionsCache[key]) {
-                return this.regionsCache[key];
+            // re-check cache by others may fetch it
+            const cachedRegion = this.regionsCache[key];
+            if (cachedRegion?.validated) {
+                return cachedRegion;
             }
-            if (bucketName) {
-                return await Region.query({
+
+            try {
+                const fetchedRegion = await this.fetchRegion(
                     bucketName,
-                    accessKey: this.sharedOptions.accessKey,
-                    ucUrl: this.sharedOptions.ucUrl,
-                    timeout: this.sharedOptions.timeout,
-                    retry: this.sharedOptions.retry,
-                    retryDelay: this.sharedOptions.retryDelay,
-                    appName: this.sharedOptions.appName,
-                    appVersion: this.sharedOptions.appVersion,
-                    uplogBufferSize: this.sharedOptions.uplogBufferSize,
-                    requestCallback: this.sharedOptions.requestCallback,
-                    responseCallback: this.sharedOptions.responseCallback,
+                    s3RegionId,
                     stats,
-                });
+                );
+                this.regionsCache[key] = fetchedRegion;
+                return fetchedRegion;
+            } catch (err) {
+                // when err, still return expired cached region
+                if (cachedRegion && !cachedRegion.validated) {
+                    return cachedRegion;
+                }
+                throw err;
             }
-            const regions = await this.regionService.getAllRegions({
+        });
+
+        return this.getUrlsFromRegion(serviceName, region);
+    }
+
+    private async fetchRegion(
+        bucketName?: string,
+        s3RegionId?: string,
+        stats?: RequestStats,
+    ): Promise<Region> {
+        let fetchedRegion: Region | undefined;
+        let fetchErr = new Error('Unknown error when query region');
+        if (bucketName) {
+            fetchedRegion = await Region.query({
+                bucketName,
+                accessKey: this.sharedOptions.accessKey,
+                ucUrl: this.sharedOptions.ucUrl,
+                timeout: this.sharedOptions.timeout,
+                retry: this.sharedOptions.retry,
+                retryDelay: this.sharedOptions.retryDelay,
+                appName: this.sharedOptions.appName,
+                appVersion: this.sharedOptions.appVersion,
+                uplogBufferSize: this.sharedOptions.uplogBufferSize,
+                requestCallback: this.sharedOptions.requestCallback,
+                responseCallback: this.sharedOptions.responseCallback,
+                stats,
+            });
+        } else {
+            const fetchedRegions = await this.regionService.getAllRegions({
                 timeout: this.sharedOptions.timeout,
                 retry: this.sharedOptions.retry,
                 retryDelay: this.sharedOptions.retryDelay,
                 stats,
             });
-            if (regions.length == 0) {
-                throw new Error('regions is empty');
-            }
-            if (s3RegionId) {
-                const region = regions.find((region) => region.s3Id === s3RegionId);
-                if (!region) {
-                    throw new Error(`Cannot find region of ${s3RegionId}`);
-                }
-                return region;
+            if (fetchedRegions.length == 0) {
+                fetchErr = new Error('regions is empty');
             } else {
-                return regions[0];
+                if (s3RegionId) {
+                    fetchedRegion = fetchedRegions.find((region) => region.s3Id === s3RegionId);
+                    fetchErr = new Error(`Cannot find region of ${s3RegionId}`);
+                } else {
+                    fetchedRegion = fetchedRegions[0];
+                }
             }
-        });
+        }
 
-        this.regionsCache[key] = region;
-        return this.getUrlsFromRegion(serviceName, region);
+        if (!fetchedRegion) {
+            throw fetchErr;
+        }
+        return fetchedRegion;
     }
 
     log(entry: UplogEntry): Promise<void> {
@@ -200,6 +230,11 @@ export class KodoHttpClient {
         switch (serviceName) {
             case ServiceName.Up:
                 return [...region.upUrls];
+            case ServiceName.UpAcc:
+                if (!region.upAccUrls.length) {
+                    return [...region.upUrls];
+                }
+                return [...region.upAccUrls];
             case ServiceName.Uc:
                 return [...region.ucUrls];
             case ServiceName.Rs:
@@ -230,4 +265,5 @@ export enum ServiceName {
     CentralApi,
     Portal,
     Uplog,
+    UpAcc,
 }

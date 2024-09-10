@@ -526,7 +526,7 @@ export class Kodo implements Adapter {
     }
 
     async putObject(
-        s3RegionId: string,
+        _s3RegionId: string,
         object: StorageObject,
         data: Buffer | Readable,
         originalFileName: string,
@@ -591,13 +591,20 @@ export class Kodo implements Adapter {
         // fix form not instanceof readable, causing http client not upload as stream.
         const putData = form.pipe(new PassThrough());
 
+        let serviceName = ServiceName.Up;
+        if (option?.accelerateUploading) {
+            serviceName = ServiceName.UpAcc;
+        }
+
         // before request callback
         option?.beforeRequestCallback?.();
         await this.call({
             method: 'POST',
-            serviceName: ServiceName.Up,
+            serviceName,
+            // spicial `bucketName` instead of `s3RegionId`,
+            // to make sure query upload services by `bucketName`.
+            bucketName: object.bucket,
             dataType: 'json',
-            s3RegionId,
             contentType: form.getHeaders()['content-type'],
             data: putData,
             appendAuthorization: false,

@@ -253,6 +253,8 @@ export interface PutObjectOption {
 
     progressCallback?: ProgressCallback;
     beforeRequestCallback?: () => void;
+
+    accelerateUploading?: boolean;
 }
 
 export interface GetObjectStreamOption {

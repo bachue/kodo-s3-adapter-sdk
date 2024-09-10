@@ -49,6 +49,7 @@ export interface RegionStorageClass {
 
 export class Region {
     upUrls: string[] = [];
+    upAccUrls: string[] = [];
     ucUrls: string[] = [];
     rsUrls: string[] = [];
     rsfUrls: string[] = [];
@@ -102,18 +103,15 @@ export class Region {
         });
     }
 
-    static getAll(options: GetAllOptions): Promise<Region[]> {
+    static async getAll(options: GetAllOptions): Promise<Region[]> {
         const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const protocol = new URL(ucUrl).protocol;
 
-        return Region.requestAll(options)
-            .then((response) => {
-                response.data.regions ??= [];
-                const regions: Region[] = response.data.regions.map(
-                    (r: any) => Region.fromResponseBody(protocol, r)
-                );
-                return regions;
-            });
+        const response = await Region.requestAll(options);
+        response.data.regions ??= [];
+        return response.data.regions.map(
+            (r: any) => Region.fromResponseBody(protocol, r)
+        );
     }
 
     static query(options: QueryOptions): Promise<Region> {
@@ -196,6 +194,7 @@ export class Region {
             return new URL(`${protocol}//${domain}`).toString();
         };
         region.upUrls = r.up.domains.map(domain2Url);
+        region.upAccUrls = r.up.acc_domains?.map(domain2Url) ?? [];
         region.ucUrls = r.uc.domains.map(domain2Url);
         region.rsUrls = r.rs.domains.map(domain2Url);
         region.rsfUrls = r.rsf.domains.map(domain2Url);

@@ -126,6 +126,7 @@ export class Uploader {
                 originalFileName,
                 putFileOption?.header,
                 {
+                    accelerateUploading: putFileOption?.accelerateUploading,
                     abortSignal: this.abortController?.signal,
                     fileStreamSetting: {
                         path: filePath,
@@ -484,6 +485,7 @@ export interface PutFileOption {
     uploadThrottleGroup?: ThrottleGroup;
     uploadThrottleOption?: ThrottleOptions;
     chunkTimeout?: number;
+    accelerateUploading?: boolean; // only working with kodo
 }
 
 export interface RecoveredOption {

@@ -4,7 +4,7 @@ import pkg from './package.json';
 import { HttpClient } from './http-client';
 import { RequestInfo, ResponseInfo } from './adapter';
 import { UplogBuffer } from './uplog';
-import { DEFAULT_API_URL, Region } from './region';
+import { DEFAULT_CENTRAL_API_URL, DEFAULT_PORTAL_URL } from './region';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo/share`;
 
@@ -62,7 +62,6 @@ function isErrorResult(data: any): data is ErrorResult {
 }
 
 interface ShareServiceOptions {
-    ucUrl?: string,
     apiUrls?: string[],
     ak?: string,
     sk?: string,
@@ -78,11 +77,13 @@ interface ShareServiceOptions {
     disableQiniuTimestampSignature?: boolean,
 }
 
-interface GetEndpointsOptions {
-    bucketName: string,
+export class AuthRequiredError extends Error {
+    constructor(msg: string) {
+        super(msg);
+    }
 }
 
-export class AuthRequiredError extends Error {
+export class ApiUrlsRequiredError extends Error {
     constructor(msg: string) {
         super(msg);
     }
@@ -105,7 +106,7 @@ export class ShareService {
         const uplogBuffer = new UplogBuffer({
             bufferSize: -1,
         });
-        const protocol = (options.apiUrls?.[0] || options.ucUrl || 'https').startsWith('https') ? 'https' : 'http';
+        const protocol = (options.apiUrls?.[0] || 'https').startsWith('https') ? 'https' : 'http';
         this.httpClient = new HttpClient(
             {
                 accessKey: options.ak || '',
@@ -127,6 +128,10 @@ export class ShareService {
     }
 
     async getApiHosts(portalHosts: string[]): Promise<string[]> {
+        if (portalHosts.includes(DEFAULT_PORTAL_URL)) {
+            return [DEFAULT_CENTRAL_API_URL];
+        }
+
         const requestURL = portalHosts.map(url => `${new URL(url)}api/kodov2/shares/config`);
         const res = await this.httpClient.call(
             requestURL,
@@ -153,11 +158,13 @@ export class ShareService {
         if (!this.options.ak || !this.options.sk) {
             throw new AuthRequiredError('ak and sk required');
         }
-        const endpointUrls = await this.getEndpoints({
-            bucketName: options.bucket,
-        });
-
-        const requestURL = endpointUrls.map(url => `${url}shares/`);
+        const endpointUrls = this.options.apiUrls;
+        if (!endpointUrls?.length) {
+            throw new ApiUrlsRequiredError('api urls is required');
+        }
+        const requestURL = endpointUrls.map(url =>
+          `${new URL(url)}shares/`
+        );
         const requestBody = {
             bucket: options.bucket,
             prefix: options.prefix,
@@ -187,10 +194,13 @@ export class ShareService {
     }
 
     async checkShare(options: CheckShareOptions): Promise<CheckShareResult> {
-        const endpointUrls = await this.getEndpoints();
+        const endpointUrls = this.options.apiUrls;
+        if (!endpointUrls?.length) {
+            throw new ApiUrlsRequiredError('api urls is required');
+        }
 
         const requestURL = endpointUrls.map(url =>
-            `${url}shares/${options.shareId}/check?token=${options.shareToken}`
+            `${new URL(url)}shares/${options.shareId}/check?token=${options.shareToken}`
         );
         const res = await this.httpClient.call<CheckShareResData>(
             requestURL,
@@ -210,10 +220,13 @@ export class ShareService {
     }
 
     async verifyShare(options: VerifyShareOptions): Promise<VerifyShareResult> {
-        const endpointUrls = await this.getEndpoints();
+        const endpointUrls = this.options.apiUrls;
+        if (!endpointUrls?.length) {
+            throw new ApiUrlsRequiredError('api urls is required');
+        }
 
         const requestURL = endpointUrls.map(url =>
-            `${url}shares/${options.shareId}/verify?token=${options.shareToken}`
+            `${new URL(url)}shares/${options.shareId}/verify?token=${options.shareToken}`
         );
         const requestBody = {
             extract_code: options.extractCode,
@@ -237,32 +250,5 @@ export class ShareService {
             throw new RequestBaseError(res.status);
         }
         return res.data as VerifyShareResult;
-    }
-
-    private async getEndpoints(options?: GetEndpointsOptions): Promise<string[]> {
-        if (this.options.apiUrls?.length) {
-            return this.options.apiUrls.map(u => new URL(u).toString());
-        }
-
-        if (!this.options.ak || !options?.bucketName) {
-            // throw new AuthRequiredError('ak and bucket is required when doesn\'t provide api urls');
-            return [DEFAULT_API_URL].map(u => new URL(u).toString());
-        }
-
-        const region = await Region.query({
-            bucketName: options.bucketName,
-            accessKey: this.options.ak,
-            ucUrl: this.options.ucUrl,
-            timeout: this.options.timeout,
-            retry: this.options.retry,
-            retryDelay: this.options.retryDelay,
-            requestCallback: this.options.requestCallback,
-            responseCallback: this.options.responseCallback,
-            appName: this.options.appName,
-            appVersion: this.options.appVersion,
-            uplogBufferSize: -1,
-        });
-
-        return region.apiUrls;
     }
 }

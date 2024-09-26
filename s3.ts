@@ -489,7 +489,7 @@ export class S3 extends Kodo {
     async putObject(
         s3RegionId: string,
         object: StorageObject,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         _originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -498,6 +498,10 @@ export class S3 extends Kodo {
             this.getClient(s3RegionId),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
+
+        if (typeof data === 'function') {
+          data = data();
+        }
 
         // get data source for http body
         const dataSource = S3.getDataSource(
@@ -547,9 +551,6 @@ export class S3 extends Kodo {
                 option.progressCallback?.(progress.loaded, progress.total);
             });
         }
-
-        // before request callback
-        option?.beforeRequestCallback?.();
 
         await this.sendS3Request(
             uploader,
@@ -1262,6 +1263,7 @@ export class S3 extends Kodo {
         _originalFileName: string,
         header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        _accelerateUploading?: boolean,
     ): Promise<InitPartsOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
         const request = s3.createMultipartUpload({
@@ -1288,10 +1290,14 @@ export class S3 extends Kodo {
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
+
+        if (typeof data === 'function') {
+          data = data();
+        }
 
         // get data source for http body
         const dataSource = S3.getDataSource(
@@ -1340,9 +1346,6 @@ export class S3 extends Kodo {
             });
         }
 
-        // before request callback
-        option?.beforeRequestCallback?.();
-
         // send request
         const respond = await this.sendS3Request(
             uploader,
@@ -1365,6 +1368,7 @@ export class S3 extends Kodo {
         _originalFileName: string,
         _header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        _accelerateUploading?: boolean,
     ): Promise<void> {
         const [s3, bucketId] = await Promise.all([
             this.getClient(s3RegionId),

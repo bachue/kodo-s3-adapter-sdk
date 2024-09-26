@@ -43,7 +43,7 @@ export abstract class Adapter {
     abstract putObject(
         region: string,
         object: StorageObject,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -54,13 +54,14 @@ export abstract class Adapter {
         originalFileName: string,
         header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        accelerateUploading?: boolean,
     ): Promise<InitPartsOutput>;
     abstract uploadPart(
         region: string,
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         option?: PutObjectOption,
     ): Promise<UploadPartOutput>;
     abstract completeMultipartUpload(
@@ -71,6 +72,7 @@ export abstract class Adapter {
         originalFileName: string,
         header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        accelerateUploading?: boolean,
     ): Promise<void>;
 
     abstract listObjects(region: string, bucket: string, prefix: string, option?: ListObjectsOption): Promise<ListedObjects>;
@@ -157,7 +159,7 @@ export interface Domain {
     type: 'cdn' | 'origin' | 'others';
     apiScope: 'kodo' | 's3';
 }
-export type DomainWithoutShouldSign = Omit<Domain, 'private' | 'protected'>
+export type DomainWithoutShouldSign = Omit<Domain, 'private' | 'protected'>;
 
 export interface FrozenInfo {
     status: FrozenStatus;
@@ -252,7 +254,6 @@ export interface PutObjectOption {
     fileStreamSetting?: FileStreamSetting;
 
     progressCallback?: ProgressCallback;
-    beforeRequestCallback?: () => void;
 
     accelerateUploading?: boolean;
 }

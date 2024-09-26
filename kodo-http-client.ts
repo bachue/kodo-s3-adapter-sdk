@@ -2,7 +2,12 @@ import AsyncLock from 'async-lock';
 import FormData from 'form-data';
 import { HttpClientResponse, HttpMethod } from 'urllib';
 import { AdapterOption } from './adapter';
-import { DEFAULT_PORTAL_URL, Region } from './region';
+import {
+    DEFAULT_CENTRAL_API_URL,
+    DEFAULT_PORTAL_URL,
+    DEFAULT_UP_LOG_URL,
+    Region
+} from './region';
 import { RegionService } from './region_service';
 import { makeUploadToken, newUploadPolicy } from './kodo-auth';
 import zlib from 'zlib';
@@ -246,11 +251,11 @@ export class KodoHttpClient {
             case ServiceName.S3:
                 return [...region.s3Urls];
             case ServiceName.CentralApi:
-                return ['https://api.qiniuapi.com'];
+                return [DEFAULT_CENTRAL_API_URL];
             case ServiceName.Portal:
                 return [DEFAULT_PORTAL_URL];
             case ServiceName.Uplog:
-                return ['http://uplog.qbox.me'];
+                return [DEFAULT_UP_LOG_URL];
         }
     }
 }

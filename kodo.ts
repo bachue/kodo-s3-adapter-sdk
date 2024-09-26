@@ -5,15 +5,15 @@ import pkg from './package.json';
 import FormData from 'form-data';
 import CRC32 from 'buffer-crc32';
 import md5 from 'js-md5';
-import {Semaphore} from 'semaphore-promise';
-import {RegionRequestOptions} from './region';
-import {RegionService} from './region_service';
-import {URL, URLSearchParams} from 'url';
-import {PassThrough, Readable, Transform} from 'stream';
-import {ReadableStreamBuffer} from 'stream-buffers';
-import {HttpClientResponse} from 'urllib';
-import {encode as base64Encode} from 'js-base64';
-import {base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL} from './kodo-auth';
+import { Semaphore } from 'semaphore-promise';
+import { RegionRequestOptions } from './region';
+import { RegionService } from './region_service';
+import { URL, URLSearchParams } from 'url';
+import { PassThrough, Readable, Transform } from 'stream';
+import { ReadableStreamBuffer } from 'stream-buffers';
+import { HttpClientResponse } from 'urllib';
+import { encode as base64Encode } from 'js-base64';
+import { base64ToUrlSafe, makeUploadToken, newUploadPolicy, signPrivateURL } from './kodo-auth';
 import {
     Adapter,
     AdapterOption,
@@ -42,9 +42,9 @@ import {
     TransferObject,
     UploadPartOutput,
 } from './adapter';
-import {KodoHttpClient, RequestOptions, ServiceName} from './kodo-http-client';
-import {RequestStats, URLRequestOptions} from './http-client';
-import {ErrorType, GenSdkApiUplogEntry, SdkApiUplogEntry, UplogEntry} from './uplog';
+import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
+import { RequestStats, URLRequestOptions } from './http-client';
+import { ErrorType, GenSdkApiUplogEntry, SdkApiUplogEntry, UplogEntry } from './uplog';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/kodo`;
 
@@ -369,21 +369,21 @@ export class Kodo implements Adapter {
             0: 'cdn',
             1: 'origin',
         };
-        const defautDomainData = response.data;
+        const defaultDomainData = response.data;
         const domains: DomainWithoutShouldSign[] = [];
         if (
-            defautDomainData.domain &&
-            defautDomainData.protocol &&
-            defautDomainData.isAvailable &&
-            defautDomainData.apiScope === 0
+            defaultDomainData.domain &&
+            defaultDomainData.protocol &&
+            defaultDomainData.isAvailable &&
+            defaultDomainData.apiScope === 0
         ) {
             domains.push({
-                name: defautDomainData.domain,
-                protocol: defautDomainData.protocol,
-                type: typeMap[defautDomainData.domainType]
-                    ? typeMap[defautDomainData.domainType]
+                name: defaultDomainData.domain,
+                protocol: defaultDomainData.protocol,
+                type: typeMap[defaultDomainData.domainType]
+                    ? typeMap[defaultDomainData.domainType]
                     : 'others',
-                apiScope: defautDomainData.apiScope === 0 ? 'kodo' : 's3',
+                apiScope: defaultDomainData.apiScope === 0 ? 'kodo' : 's3',
             });
         }
         return domains;
@@ -400,19 +400,19 @@ export class Kodo implements Adapter {
 
         // handle kodo share bucket
         if (
-            bucketInfoResult.status === "fulfilled" &&
+            bucketInfoResult.status === 'fulfilled' &&
             bucketInfoResult.value.perm &&
             bucketInfoResult.value.perm > 0
         ) {
-            if (defaultDomainsResult.status === "rejected") {
+            if (defaultDomainsResult.status === 'rejected') {
                 return [];
             }
             return defaultDomainsResult.value
-                // s3 domain is not avaliable with kodo share bucket
-                .filter(d => d.apiScope === "kodo")
+                // s3 domain is not available with kodo share bucket
+                .filter(d => d.apiScope === 'kodo')
                 .map(d => ({
                     ...d,
-                    private: bucketInfoResult.value.private !== 0 || d.apiScope === "s3",
+                    private: bucketInfoResult.value.private !== 0 || d.apiScope === 's3',
                     protected: bucketInfoResult.value.protected !== 0,
                 }));
         }
@@ -426,13 +426,13 @@ export class Kodo implements Adapter {
         let result: Domain[] = [];
 
         domainsResults.forEach(domainsResult => {
-            if (domainsResult.status === "fulfilled") {
+            if (domainsResult.status === 'fulfilled') {
                 result = result.concat(domainsResult.value.map(d => ({
                     ...d,
-                    private: bucketInfoResult.status === "rejected"
+                    private: bucketInfoResult.status === 'rejected'
                         ? true
-                        : bucketInfoResult.value?.private !== 0 || d.apiScope === "s3",
-                    protected: bucketInfoResult.status === "rejected"
+                        : bucketInfoResult.value?.private !== 0 || d.apiScope === 's3',
+                    protected: bucketInfoResult.status === 'rejected'
                         ? true
                         : bucketInfoResult.value?.protected !== 0,
                 })));
@@ -528,7 +528,7 @@ export class Kodo implements Adapter {
     async putObject(
         _s3RegionId: string,
         object: StorageObject,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -549,20 +549,12 @@ export class Kodo implements Adapter {
             }),
         );
 
-        const form = new FormData();
-        form.append('key', object.key);
-        form.append('token', token);
-        if (header?.metadata) {
-            for (const [metaKey, metaValue] of Object.entries(header.metadata)) {
-                form.append(`x-qn-meta-${metaKey}`, metaValue);
-            }
-        }
         // get content length and content crc32
         let contentLength: number;
         let crc32: string;
-        if (data instanceof Readable) {
+        if (data instanceof Readable || typeof data === 'function') {
             if (!option?.fileStreamSetting) {
-                throw new Error('s3 need fileStreamSetting when use stream');
+                throw new Error('kodo need fileStreamSetting when use stream or getter');
             }
             contentLength = (await fs.promises.stat(option.fileStreamSetting.path)).size;
             crc32 = (await this.getContentCrc32(
@@ -574,30 +566,53 @@ export class Kodo implements Adapter {
             contentLength = data.length;
             crc32 = (await this.getContentCrc32(data)).toString();
         }
-        form.append('crc32', crc32);
 
-        const fileData = Kodo.wrapDataWithProgress(data, contentLength, option);
-        // Fix the bug of form-data lib
-        // https://html.spec.whatwg.org/#multipart-form-data
-        const escapeFileName = originalFileName.replace(/"/g, '%22')
-            .replace(/\r/g, '%0D')
-            .replace(/\n/g, '%0A');
-        const fileOption: FormData.AppendOptions = {
-            filename: escapeFileName,
+        // get the form stream
+        // settle the boundary for retryable
+        const formForBoundary = new FormData();
+        const formBoundary = formForBoundary.getBoundary();
+        const contentType = formForBoundary.getHeaders()['content-type'];
+
+        // make this to a function for http client retryable
+        const putData = () => {
+            const form = new FormData({
+                // @ts-ignore settle the boundary for retryable
+                _boundary: formBoundary,
+            });
+            form.append('key', object.key);
+            form.append('token', token);
+            if (header?.metadata) {
+                for (const [metaKey, metaValue] of Object.entries(header.metadata)) {
+                    form.append(`x-qn-meta-${metaKey}`, metaValue);
+                }
+            }
+            form.append('crc32', crc32);
+
+            // progress callback
+            const fileData = typeof data === 'function'
+                ? Kodo.wrapDataWithProgress(data(), contentLength, option)
+                : Kodo.wrapDataWithProgress(data, contentLength, option);
+            // Fix the bug of form-data lib
+            // https://html.spec.whatwg.org/#multipart-form-data
+            const escapeFileName = originalFileName.replace(/"/g, '%22')
+                .replace(/\r/g, '%0D')
+                .replace(/\n/g, '%0A');
+            const fileOption: FormData.AppendOptions = {
+                filename: escapeFileName,
+                contentType: header?.contentType,
+            };
+            form.append('file', fileData, fileOption);
+
+            // fix form not instanceof readable, causing http client not upload as stream.
+            return form.pipe(new PassThrough());
         };
-        fileOption.contentType = header?.contentType;
-        form.append('file', fileData, fileOption);
 
-        // fix form not instanceof readable, causing http client not upload as stream.
-        const putData = form.pipe(new PassThrough());
-
+        // set preferred up service
         let serviceName = ServiceName.Up;
         if (option?.accelerateUploading) {
             serviceName = ServiceName.UpAcc;
         }
 
-        // before request callback
-        option?.beforeRequestCallback?.();
         await this.call({
             method: 'POST',
             serviceName,
@@ -605,7 +620,7 @@ export class Kodo implements Adapter {
             // to make sure query upload services by `bucketName`.
             bucketName: object.bucket,
             dataType: 'json',
-            contentType: form.getHeaders()['content-type'],
+            contentType: contentType,
             data: putData,
             appendAuthorization: false,
             abortSignal: option?.abortSignal,
@@ -686,7 +701,7 @@ export class Kodo implements Adapter {
         style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'bucketEndpoint',
     ): Promise<URL> {
         if (!domain) {
-            let domains = await this._listDomains(s3RegionId, object.bucket);
+            const domains = await this._listDomains(s3RegionId, object.bucket);
             if (domains.length === 0) {
                 throw new Error('no domain found');
             }
@@ -1074,7 +1089,7 @@ export class Kodo implements Adapter {
 
             // add commonPrefixes
             if (data.commonPrefixes && data.commonPrefixes.length) {
-                results.commonPrefixes ??= []
+                results.commonPrefixes ??= [];
                 results.commonPrefixes = results.commonPrefixes.concat(
                     data.commonPrefixes.map((dir: string) => ({
                         bucket,
@@ -1111,6 +1126,7 @@ export class Kodo implements Adapter {
         _originalFileName: string,
         _header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        accelerateUploading?: boolean,
     ): Promise<InitPartsOutput> {
         const token = makeUploadToken(
             this.adapterOption.accessKey,
@@ -1129,9 +1145,18 @@ export class Kodo implements Adapter {
         );
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads`;
 
+        // set preferred up service
+        let serviceName = ServiceName.Up;
+        if (accelerateUploading) {
+            serviceName = ServiceName.UpAcc;
+        }
+
         const response = await this.call({
             method: 'POST',
-            serviceName: ServiceName.Up,
+            serviceName: serviceName,
+            // spicial `bucketName` instead of `s3RegionId`,
+            // to make sure query upload services by `bucketName`.
+            bucketName: object.bucket,
             path,
             dataType: 'json',
             s3RegionId,
@@ -1150,11 +1175,11 @@ export class Kodo implements Adapter {
     }
 
     async uploadPart(
-        s3RegionId: string,
+        _s3RegionId: string,
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const token = makeUploadToken(
@@ -1176,7 +1201,7 @@ export class Kodo implements Adapter {
         // get content length and content md5
         let contentLength: number;
         let contentMd5: string;
-        if (data instanceof Readable) {
+        if (data instanceof Readable || typeof data === 'function') {
             if (!option?.fileStreamSetting) {
                 throw new Error('kodo need fileStreamSetting when use stream');
             }
@@ -1191,22 +1216,34 @@ export class Kodo implements Adapter {
             contentMd5 = await this.getContentMd5(data);
         }
 
-        // progress callback
-        const putData = Kodo.wrapDataWithProgress(data, contentLength, option);
-
+        // get the form stream
+        // make this to a function for http client retryable
+        const putData = () => {
+            // progress callback
+            if (typeof data === 'function') {
+                return Kodo.wrapDataWithProgress(data(), contentLength, option);
+            } else {
+                return Kodo.wrapDataWithProgress(data, contentLength, option);
+            }
+        };
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}/${partNumber}`;
 
-        // before request callback
-        option?.beforeRequestCallback?.();
+        // set preferred up service
+        let serviceName = ServiceName.Up;
+        if (option?.accelerateUploading) {
+            serviceName = ServiceName.UpAcc;
+        }
 
         // send request
         const response = await this.call({
             method: 'PUT',
-            serviceName: ServiceName.Up,
+            serviceName: serviceName,
+            // spicial `bucketName` instead of `s3RegionId`,
+            // to make sure query upload services by `bucketName`.
+            bucketName: object.bucket,
             path,
             data: putData,
             dataType: 'json',
-            s3RegionId,
             contentType: 'application/octet-stream',
             headers: {
                 'authorization': `UpToken ${token}`,
@@ -1225,13 +1262,14 @@ export class Kodo implements Adapter {
     }
 
     async completeMultipartUpload(
-        s3RegionId: string,
+        _s3RegionId: string,
         object: StorageObject,
         uploadId: string,
         parts: Part[],
         originalFileName: string,
         header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        accelerateUploading?: boolean,
     ): Promise<void> {
         const token = makeUploadToken(
             this.adapterOption.accessKey,
@@ -1249,22 +1287,30 @@ export class Kodo implements Adapter {
         const path = `/buckets/${object.bucket}/objects/${urlSafeBase64(object.key)}/uploads/${uploadId}`;
         const metadata: { [metaKey: string]: string; } = {};
         if (header?.metadata) {
-            for (const [metaKey, metaValue] of Object.entries(header!.metadata)) {
+            for (const [metaKey, metaValue] of Object.entries(header.metadata)) {
                 metadata[`x-qn-meta-${metaKey}`] = metaValue;
             }
         }
         const data: any = { fname: originalFileName, parts, metadata };
         if (header?.contentType) {
-            data.mimeType = header!.contentType;
+            data.mimeType = header.contentType;
+        }
+
+        // set preferred up service
+        let serviceName = ServiceName.Up;
+        if (accelerateUploading) {
+            serviceName = ServiceName.UpAcc;
         }
 
         await this.call({
             method: 'POST',
-            serviceName: ServiceName.Up,
+            serviceName: serviceName,
+            // spicial `bucketName` instead of `s3RegionId`,
+            // to make sure query upload services by `bucketName`.
+            bucketName: object.bucket,
             path,
             data: JSON.stringify(data),
             dataType: 'json',
-            s3RegionId,
             headers: { 'authorization': `UpToken ${token}` },
             abortSignal,
 
@@ -1379,7 +1425,7 @@ export class Kodo implements Adapter {
     }
 }
 
-interface KodoScopeCahcesOptions {
+interface KodoScopeCachesOptions {
     bucketDomainsCache: Record<string, Domain[]>,
     bucketDomainsCacheLock: AsyncLock,
 }
@@ -1394,7 +1440,7 @@ class KodoScope extends Kodo {
         adapterOption: AdapterOption,
         kodoAdapterOption: KodoAdapterOption,
         sdkUplogOption: SdkUplogOption,
-        caches: KodoScopeCahcesOptions,
+        caches: KodoScopeCachesOptions,
     ) {
         super(adapterOption, kodoAdapterOption);
         this.sdkUplogOption = sdkUplogOption;

@@ -3,8 +3,11 @@ import { URL } from 'url';
 import { Readable } from 'stream';
 import { OutgoingHttpHeaders } from 'http';
 import { NatureLanguage } from './uplog';
+import { KodoHttpClient } from './kodo-http-client';
 
 export abstract class Adapter {
+    abstract readonly client: KodoHttpClient;
+
     abstract storageClasses: StorageClass[];
 
     abstract enter<T>(sdkApiName: string, f: (scope: Adapter) => Promise<T>, sdkUplogOption?: EnterUplogOption): Promise<T>;

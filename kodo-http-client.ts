@@ -49,9 +49,15 @@ export interface SharedRequestOptions extends AdapterOption {
     apiType: 'kodo' | 's3',
 }
 
+const regionsCache: Map<string, Region> = new Map<string, Region>();
+const regionsCacheLock = new AsyncLock();
+
 export class KodoHttpClient {
-    private readonly regionsCache: { [key: string]: Region; } = {};
-    private readonly regionsCacheLock = new AsyncLock();
+    static clearCache(): void {
+        regionsCache.clear();
+        RegionService.clearCache();
+    }
+
     private readonly regionService: RegionService;
     private static logClientId: string | undefined = undefined;
     private readonly uplogBuffer: UplogBuffer;
@@ -69,7 +75,12 @@ export class KodoHttpClient {
     }
 
     async call<T = any>(options: RequestOptions): Promise<HttpClientResponse<T>> {
-        const urls = await this.getServiceUrls(options.serviceName, options.bucketName, options.s3RegionId, options.stats);
+        const urls = await this.getServiceUrls({
+            serviceName: options.serviceName,
+            bucketName: options.bucketName,
+            s3RegionId: options.s3RegionId,
+            stats: options.stats
+        });
         return await this.callUrls(urls, {
             method: options.method,
             path: options.path,
@@ -95,50 +106,82 @@ export class KodoHttpClient {
     }
 
     clearCache() {
-        Object.keys(this.regionsCache).forEach((key) => { delete this.regionsCache[key]; });
-        this.regionService.clearCache();
+        KodoHttpClient.clearCache();
     }
 
-    private async getServiceUrls(
+    private async getRegion(
+      serviceName: ServiceName,
+      bucketName?: string,
+      s3RegionId?: string,
+      stats?: RequestStats,
+    ): Promise<Region> {
+      let key: string;
+      if (s3RegionId) {
+          key = `${this.sharedOptions.ucUrl}/${s3RegionId}`;
+      } else {
+          key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
+      }
+      if (serviceName === ServiceName.UpAcc) {
+          key += `/${ServiceName.UpAcc}`;
+      }
+      const cachedRegion = regionsCache.get(key);
+      if (cachedRegion?.validated) {
+        return cachedRegion;
+      }
+      return await regionsCacheLock.acquire(key, async (): Promise<Region> => {
+          // re-check cache by others may fetch it
+          const cachedRegion = regionsCache.get(key);
+          if (cachedRegion?.validated) {
+              return cachedRegion;
+          }
+
+          try {
+              const fetchedRegion = await this.fetchRegion(
+                  bucketName,
+                  s3RegionId,
+                  stats,
+              );
+              if (
+                  bucketName &&
+                  serviceName === ServiceName.UpAcc &&
+                  !fetchedRegion.upAccUrls?.length
+              ) {
+                  // no upAccUrls, do not cache
+                  return fetchedRegion;
+              }
+              regionsCache.set(key, fetchedRegion);
+              return fetchedRegion;
+          } catch (err) {
+              // when err, still return expired cached region
+              if (cachedRegion && !cachedRegion.validated) {
+                  return cachedRegion;
+              }
+              throw err;
+          }
+      });
+    }
+
+    async getServiceUrls({
+        serviceName,
+        bucketName,
+        s3RegionId,
+        stats,
+        withFallback = true,
+    }:{
         serviceName: ServiceName,
         bucketName?: string,
         s3RegionId?: string,
         stats?: RequestStats,
-    ): Promise<string[]> {
-        let key: string;
-        if (s3RegionId) {
-            key = `${this.sharedOptions.ucUrl}/${s3RegionId}`;
-        } else {
-            key = `${this.sharedOptions.ucUrl}/${this.sharedOptions.accessKey}/${bucketName}`;
-        }
-        if (this.regionsCache[key]?.validated) {
-            return this.getUrlsFromRegion(serviceName, this.regionsCache[key]);
-        }
-        const region: Region = await this.regionsCacheLock.acquire(key, async (): Promise<Region> => {
-            // re-check cache by others may fetch it
-            const cachedRegion = this.regionsCache[key];
-            if (cachedRegion?.validated) {
-                return cachedRegion;
-            }
+        withFallback?: boolean,
+    }): Promise<string[]> {
+        const region = await this.getRegion(
+          serviceName,
+          bucketName,
+          s3RegionId,
+          stats,
+        );
 
-            try {
-                const fetchedRegion = await this.fetchRegion(
-                    bucketName,
-                    s3RegionId,
-                    stats,
-                );
-                this.regionsCache[key] = fetchedRegion;
-                return fetchedRegion;
-            } catch (err) {
-                // when err, still return expired cached region
-                if (cachedRegion && !cachedRegion.validated) {
-                    return cachedRegion;
-                }
-                throw err;
-            }
-        });
-
-        return this.getUrlsFromRegion(serviceName, region);
+        return this.getUrlsFromRegion(serviceName, region, withFallback);
     }
 
     private async fetchRegion(
@@ -231,15 +274,25 @@ export class KodoHttpClient {
         }
     }
 
-    private getUrlsFromRegion(serviceName: ServiceName, region: Region): string[] {
+    private getUrlsFromRegion(
+      serviceName: ServiceName,
+      region: Region,
+      withFallback = true,
+    ): string[] {
         switch (serviceName) {
             case ServiceName.Up:
                 return [...region.upUrls];
             case ServiceName.UpAcc:
+                if (!withFallback) {
+                    return [...region.upAccUrls];
+                }
                 if (!region.upAccUrls.length) {
                     return [...region.upUrls];
                 }
-                return [...region.upAccUrls];
+                return [
+                  ...region.upAccUrls,
+                  ...region.upUrls,
+                ];
             case ServiceName.Uc:
                 return [...region.ucUrls];
             case ServiceName.Rs:

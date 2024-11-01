@@ -55,7 +55,7 @@ interface KodoAdapterOption {
 
 export class Kodo implements Adapter {
     storageClasses: StorageClass[] = [];
-    protected readonly client: KodoHttpClient;
+    readonly client: KodoHttpClient;
     protected readonly regionService: RegionService;
     protected bucketDomainsCache: Record<string, Domain[]> = {};
     protected bucketDomainsCacheLock = new AsyncLock();

@@ -14,6 +14,9 @@ const regionCache: Map<string, Region[]> = new Map<string, Region[]>();
 const queryRegionLock = new AsyncLock();
 
 export class RegionService {
+    static clearCache() {
+        regionCache.clear();
+    }
 
     constructor(private readonly adapterOption: AdapterOption) {
     }
@@ -59,7 +62,7 @@ export class RegionService {
     }
 
     clearCache() {
-        regionCache.clear();
+        RegionService.clearCache();
     }
 
     async getS3Endpoint(s3RegionId?: string, options?: GetAllRegionsOptions): Promise<S3IdEndpoint> {

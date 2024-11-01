@@ -62,12 +62,16 @@ export class Region {
         readonly label?: string,
         readonly translatedLabels: { [lang: string]: string; } = {},
         readonly storageClasses: RegionStorageClass[] = [],
-        readonly ttl: number = 0,
+        public ttl: number = 0,
         readonly createTime: number = Date.now(),
     ) {}
 
     get validated(): boolean {
-        return Date.now() < (this.createTime + this.ttl * 1000);
+        if (this.ttl < 0) {
+            return true;
+        }
+        const liveTime = Math.round((Date.now() - this.createTime) / 1000);
+        return liveTime < this.ttl;
     }
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {

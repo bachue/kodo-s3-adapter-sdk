@@ -1,15 +1,15 @@
 import dns from 'dns';
 import AsyncLock from 'async-lock';
-import AWS, {AWSError} from 'aws-sdk';
+import AWS, { AWSError } from 'aws-sdk';
 import os from 'os';
 import fs from 'fs';
 import pkg from './package.json';
 import md5 from 'js-md5';
-import {URL} from 'url';
-import {PassThrough, Readable, Writable} from 'stream';
-import {Semaphore} from 'semaphore-promise';
-import {Kodo} from './kodo';
-import {ReadableStreamBuffer} from 'stream-buffers';
+import { URL } from 'url';
+import { PassThrough, Readable, Writable } from 'stream';
+import { Semaphore } from 'semaphore-promise';
+import { Kodo } from './kodo';
+import { ReadableStreamBuffer } from 'stream-buffers';
 import {
     Adapter,
     AdapterOption,
@@ -47,11 +47,11 @@ import {
     RequestUplogEntry,
     SdkApiUplogEntry,
 } from './uplog';
-import {HttpClient, RequestStats} from './http-client';
-import {ServiceName} from './kodo-http-client';
-import {RegionRequestOptions} from './region';
-import {generateReqId} from './req_id';
-import {HttpClientResponse} from "urllib";
+import { HttpClient, RequestStats } from './http-client';
+import { ServiceName } from './kodo-http-client';
+import { RegionRequestOptions } from './region';
+import { generateReqId } from './req_id';
+import { HttpClientResponse } from 'urllib';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -489,7 +489,7 @@ export class S3 extends Kodo {
     async putObject(
         s3RegionId: string,
         object: StorageObject,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         _originalFileName: string,
         header?: SetObjectHeader,
         option?: PutObjectOption,
@@ -498,6 +498,10 @@ export class S3 extends Kodo {
             this.getClient(s3RegionId),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
+
+        if (typeof data === 'function') {
+          data = data();
+        }
 
         // get data source for http body
         const dataSource = S3.getDataSource(
@@ -547,9 +551,6 @@ export class S3 extends Kodo {
                 option.progressCallback?.(progress.loaded, progress.total);
             });
         }
-
-        // before request callback
-        option?.beforeRequestCallback?.();
 
         await this.sendS3Request(
             uploader,
@@ -1262,6 +1263,7 @@ export class S3 extends Kodo {
         _originalFileName: string,
         header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        _accelerateUploading?: boolean,
     ): Promise<InitPartsOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
         const request = s3.createMultipartUpload({
@@ -1288,10 +1290,14 @@ export class S3 extends Kodo {
         object: StorageObject,
         uploadId: string,
         partNumber: number,
-        data: Buffer | Readable,
+        data: Buffer | Readable | (() => Buffer | Readable),
         option?: PutObjectOption,
     ): Promise<UploadPartOutput> {
         const [s3, bucketId] = await Promise.all([this.getClient(s3RegionId), this.fromKodoBucketNameToS3BucketId(object.bucket)]);
+
+        if (typeof data === 'function') {
+          data = data();
+        }
 
         // get data source for http body
         const dataSource = S3.getDataSource(
@@ -1340,9 +1346,6 @@ export class S3 extends Kodo {
             });
         }
 
-        // before request callback
-        option?.beforeRequestCallback?.();
-
         // send request
         const respond = await this.sendS3Request(
             uploader,
@@ -1365,6 +1368,7 @@ export class S3 extends Kodo {
         _originalFileName: string,
         _header?: SetObjectHeader,
         abortSignal?: AbortSignal,
+        _accelerateUploading?: boolean,
     ): Promise<void> {
         const [s3, bucketId] = await Promise.all([
             this.getClient(s3RegionId),

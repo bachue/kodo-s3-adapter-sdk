@@ -144,6 +144,9 @@ export class SpeedMonitor extends EventEmitter {
 
     updateProgress(delta: number) {
         this._transferred += delta;
+        if (delta < 0) {
+            this.lastLoaded += delta;
+        }
     }
 
     start() {

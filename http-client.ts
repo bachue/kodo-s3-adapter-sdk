@@ -46,15 +46,17 @@ export interface RequestStats {
     errorDescription?: string;
 }
 
+type URLRequestData = string | Buffer | Readable;
+
 export interface URLRequestOptions {
     fullUrl?: boolean;
     appendAuthorization?: boolean;
     method: HttpMethod;
     path?: string;
     query?: Record<string, string | number | undefined>;
-    data?: string | Buffer | Readable;
+    data?: URLRequestData | (() => URLRequestData);
     dataType?: string;
-    form?: FormData;
+    form?: FormData | (() => FormData);
     streaming?: boolean,
     contentType?: string;
     headers?: { [headerName: string]: string; },
@@ -86,6 +88,7 @@ export class HttpClient {
         // @ts-ignore
         agent: HttpClient.httpKeepaliveAgent,
         httpsAgent: HttpClient.httpsKeepaliveAgent,
+        isRetry: () => false, // default value, controlled by request option actually
     });
 
     constructor(
@@ -145,7 +148,23 @@ export class HttpClient {
                 delete options.dataType;
             }
 
-            const data = options.data ?? options.form?.getBuffer();
+            // make `options.data`, `options.form` callable to
+            // enable the build-in retry of urllib
+            let data: URLRequestData | undefined;
+            if (options.data) {
+                if (typeof options.data === 'function') {
+                    data = options.data();
+                } else {
+                    data = options.data;
+                }
+            } else {
+                if (typeof options.form === 'function') {
+                    data = options.form().getBuffer();
+                } else {
+                    data = options.form?.getBuffer();
+                }
+            }
+
             const requestOption: RequestOptions2 = {
                 method: options.method,
                 dataType: options.dataType,
@@ -156,12 +175,7 @@ export class HttpClient {
                 streaming: options.streaming,
                 retry: this.clientOptions.retry,
                 retryDelay: this.clientOptions.retryDelay,
-                isRetry: (res) => {
-                    if (options.abortSignal?.aborted) {
-                        return false;
-                    }
-                    return this.isRetry(res);
-                },
+                isRetry: (res) => this.isRetry(res, options),
                 beforeRequest: (info) => {
                     if (options.stats) {
                         options.stats.requestsCount += 1;
@@ -269,7 +283,7 @@ export class HttpClient {
                             options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
                         this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
-                            if (urls.length > 0 && this.isRetry(response)) {
+                            if (urls.length > 0 && this.isRetry(response, options)) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
                                 reject(error);
@@ -305,7 +319,7 @@ export class HttpClient {
                             options.stats.errorDescription = errorRequestUplogEntry.error_description;
                         }
                         this.uplogBuffer.log(errorRequestUplogEntry).finally(() => {
-                            if (urls.length > 0 && this.isRetry(response)) {
+                            if (urls.length > 0 && this.isRetry(response, options)) {
                                 this.call(urls, options).then(resolve, reject);
                             } else {
                                 reject(error);
@@ -384,10 +398,10 @@ export class HttpClient {
     private makeAuthorization(url: URL, options: URLRequestOptions): string {
         let data: string | undefined;
         if (options.data) {
-            if (options.dataType === 'json') {
-                data = JSON.stringify(options.data);
-            }
-            data = options.data.toString();
+            const actualData = typeof options.data === 'function'
+                ? options.data()
+                : options.data;
+            data = actualData.toString();
         }
 
         if (!this.clientOptions.disableQiniuTimestampSignature) {
@@ -406,8 +420,12 @@ export class HttpClient {
         );
     }
 
-    private isRetry(response: HttpClientResponse<any>): boolean {
-        if (response.status > 0 && response.status < 500) {
+    private isRetry(response: HttpClientResponse<any>, reqOpts: URLRequestOptions): boolean {
+        if (
+            reqOpts.abortSignal?.aborted ||
+            (reqOpts.data && reqOpts.data instanceof Readable) ||
+            (response.status > 0 && response.status < 500)
+        ) {
             return false;
         }
 
@@ -428,6 +446,7 @@ export class HttpClient {
             640,
             701,
         ];
+
         if (dontRetryStatusCodes.includes(response.status)) {
             return false;
         }

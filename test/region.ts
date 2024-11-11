@@ -21,9 +21,9 @@ describe('Region', () => {
                 appName: 'fakeAppName',
                 appVersion: 'fakeAppVersion',
             });
-            expect(region.id).to.equal('na0');
-            expect(region.s3Id).to.equal('us-north-1');
-            expect(region.s3Urls).to.eql(['https://s3-us-north-1.qiniucs.com/']);
+            expect(region.id).to.equal('z0');
+            expect(region.s3Id).to.equal('cn-east-1');
+            expect(region.s3Urls).to.eql(['https://s3.cn-east-1.qiniucs.com/']);
         });
 
         it('queries for http urls', async () => {
@@ -34,9 +34,9 @@ describe('Region', () => {
                 appName: 'fakeAppName',
                 appVersion: 'fakeAppVersion',
             });
-            expect(region.id).to.equal('na0');
-            expect(region.s3Id).to.equal('us-north-1');
-            expect(region.s3Urls).to.eql(['http://s3-us-north-1.qiniucs.com/']);
+            expect(region.id).to.equal('z0');
+            expect(region.s3Id).to.equal('cn-east-1');
+            expect(region.s3Urls).to.eql(['http://s3.cn-east-1.qiniucs.com/']);
         });
     });
 

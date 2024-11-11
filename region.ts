@@ -12,7 +12,8 @@ export const DEFAULT_UC_BACKUP = [
     'https://uc.qbox.me',
 ];
 export const DEFAULT_PORTAL_URL = 'https://portal.qiniu.com';
-export const DEFAULT_API_URL = 'https://api.qiniuapi.com';
+export const DEFAULT_CENTRAL_API_URL = 'https://api.qiniuapi.com';
+export const DEFAULT_UP_LOG_URL = 'http://uplog.qbox.me';
 
 export interface RegionRequestOptions {
     timeout?: number | number[];
@@ -49,6 +50,7 @@ export interface RegionStorageClass {
 
 export class Region {
     upUrls: string[] = [];
+    upAccUrls: string[] = [];
     ucUrls: string[] = [];
     rsUrls: string[] = [];
     rsfUrls: string[] = [];
@@ -60,12 +62,16 @@ export class Region {
         readonly label?: string,
         readonly translatedLabels: { [lang: string]: string; } = {},
         readonly storageClasses: RegionStorageClass[] = [],
-        readonly ttl: number = 0,
+        public ttl: number = 0,
         readonly createTime: number = Date.now(),
     ) {}
 
     get validated(): boolean {
-        return Date.now() < (this.createTime + this.ttl * 1000);
+        if (this.ttl < 0) {
+            return true;
+        }
+        const liveTime = Math.round((Date.now() - this.createTime) / 1000);
+        return liveTime < this.ttl;
     }
 
     private static requestAll(options: GetAllOptions): Promise<HttpClientResponse<any>> {
@@ -102,18 +108,15 @@ export class Region {
         });
     }
 
-    static getAll(options: GetAllOptions): Promise<Region[]> {
+    static async getAll(options: GetAllOptions): Promise<Region[]> {
         const ucUrl: string = options.ucUrl || DEFAULT_UC_URL;
         const protocol = new URL(ucUrl).protocol;
 
-        return Region.requestAll(options)
-            .then((response) => {
-                response.data.regions ??= [];
-                const regions: Region[] = response.data.regions.map(
-                    (r: any) => Region.fromResponseBody(protocol, r)
-                );
-                return regions;
-            });
+        const response = await Region.requestAll(options);
+        response.data.regions ??= [];
+        return response.data.regions.map(
+            (r: any) => Region.fromResponseBody(protocol, r)
+        );
     }
 
     static query(options: QueryOptions): Promise<Region> {
@@ -196,6 +199,7 @@ export class Region {
             return new URL(`${protocol}//${domain}`).toString();
         };
         region.upUrls = r.up.domains.map(domain2Url);
+        region.upAccUrls = r.up.acc_domains?.map(domain2Url) ?? [];
         region.ucUrls = r.uc.domains.map(domain2Url);
         region.rsUrls = r.rs.domains.map(domain2Url);
         region.rsfUrls = r.rsf.domains.map(domain2Url);
@@ -204,4 +208,3 @@ export class Region {
         return region;
     }
 }
-

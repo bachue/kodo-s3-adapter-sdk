@@ -106,26 +106,31 @@ export class Uploader {
         putProgressError: Ref<Error>,
         putFileOption?: PutFileOption,
     ): Promise<void> {
-        const data = this.getPutReader({
-            filePath,
-            putProgressError,
-            putFileOption,
-        });
-        this.speedMonitor = this.getSpeedMonitor({
-            totalSize: fileSize,
-            start: 0,
-            progressCallback: putFileOption?.putCallback?.progressCallback,
-        });
+        const fileReader = () => {
+            const data = this.getPutReader({
+                filePath,
+                putProgressError,
+                putFileOption,
+            });
+            this.speedMonitor = this.getSpeedMonitor({
+                totalSize: fileSize,
+                start: 0,
+                progressCallback: putFileOption?.putCallback?.progressCallback,
+            });
+            return data;
+        };
+
         let lastUploaded = 0;
         try {
             // send request
             await this.adapter.putObject(
                 region,
                 object,
-                data,
+                fileReader,
                 originalFileName,
                 putFileOption?.header,
                 {
+                    accelerateUploading: putFileOption?.accelerateUploading,
                     abortSignal: this.abortController?.signal,
                     fileStreamSetting: {
                         path: filePath,
@@ -133,17 +138,15 @@ export class Uploader {
                         end: Infinity,
                     },
                     progressCallback: (uploaded) => {
+                        // when calc md5/crc32 do not monitor to avoid chunk timeout too sensitive
+                        this.speedMonitor?.start();
                         this.speedMonitor?.updateProgress(uploaded - lastUploaded);
                         lastUploaded = uploaded;
                     },
-                    beforeRequestCallback: () => {
-                        // when calc md5/crc32 do not monitor to avoid chunk timeout too sensitive
-                        this.speedMonitor?.start();
-                    }
                 },
             );
         } finally {
-            this.speedMonitor.destroy();
+            this.speedMonitor?.destroy();
             this.speedMonitor = undefined;
         }
     }
@@ -193,6 +196,7 @@ export class Uploader {
             originalFileName,
             putFileOption?.header,
             this.abortController?.signal,
+            putFileOption?.accelerateUploading,
         );
     }
 
@@ -219,6 +223,7 @@ export class Uploader {
             originalFileName,
             putFileOption?.header,
             this.abortController?.signal,
+            putFileOption?.accelerateUploading,
         );
         recovered.uploadId = initPartsOutput.uploadId;
         return recovered;
@@ -331,13 +336,15 @@ export class Uploader {
             start + partSize - 1,
             fileSize - 1,
         );
-        const fileReader = this.getPutReader({
-            filePath,
-            start,
-            end,
-            putProgressError,
-            putFileOption,
-        });
+        const fileReader = () => {
+            return this.getPutReader({
+                filePath,
+                start,
+                end,
+                putProgressError,
+                putFileOption,
+            });
+        };
 
         let lastUploaded = 0;
         const uploadPartResp = await this.adapter.uploadPart(
@@ -348,19 +355,18 @@ export class Uploader {
             fileReader,
             {
                 abortSignal: this.abortController?.signal,
+                accelerateUploading: putFileOption?.accelerateUploading,
                 fileStreamSetting: {
                     path: filePath,
                     start,
                     end,
                 },
                 progressCallback: (uploaded) => {
+                    // when calc md5/crc32 do not monitor to avoid chunk timeout too sensitive
+                    this.speedMonitor?.start();
                     this.speedMonitor?.updateProgress(uploaded - lastUploaded);
                     lastUploaded = uploaded;
                 },
-                beforeRequestCallback: () => {
-                    // when calc md5/crc32 do not monitor to avoid chunk timeout too sensitive
-                    this.speedMonitor?.start();
-                }
             },
         );
 
@@ -484,6 +490,7 @@ export interface PutFileOption {
     uploadThrottleGroup?: ThrottleGroup;
     uploadThrottleOption?: ThrottleOptions;
     chunkTimeout?: number;
+    accelerateUploading?: boolean; // only working with kodo
 }
 
 export interface RecoveredOption {
@@ -506,8 +513,8 @@ function findPartsByNumber(parts: Part[], partNumber: number): Part | undefined 
 }
 
 function partsCountOfFile(fileSize: number, partSize: number): number {
-    const count = (fileSize + partSize - 1) / partSize;
-    return ~~count;
+    const count = fileSize / partSize;
+    return Math.ceil(count);
 }
 
 function uploadedSizeOfParts(parts: Part[], fileSize: number, partSize: number): number {

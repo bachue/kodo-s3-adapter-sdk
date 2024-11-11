@@ -10,6 +10,7 @@ import { Qiniu, KODO_MODE, S3_MODE } from '../qiniu';
 import { TransferObject } from '../adapter';
 import { Uploader } from '../uploader';
 import { Downloader } from '../downloader';
+import { ServiceName } from '../kodo-http-client';
 process.on('uncaughtException', (err: any, origin: any) => {
     fs.writeSync(
         process.stderr.fd,
@@ -914,6 +915,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     expect(fileUploaded).to.equal((1 << 20) * 11);
                     expect(filePartUploaded).to.have.lengthOf(3);
 
+
                     {
                         const isExisted = await qiniuAdapter.isExists(bucketRegionId, { bucket: bucketName, key: key });
                         expect(isExisted).to.equal(true);
@@ -1220,6 +1222,161 @@ process.on('uncaughtException', (err: any, origin: any) => {
                     await tmpfile.close();
                 }
             });
+
+            if (mode === KODO_MODE) {
+              it('upload with accelerate uploading by uploader', async () => {
+                const tmpfilePath = tempfile();
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w');
+                try {
+                  await tmpfile.write(randomBytes((1 << 20) * 11));
+                } finally {
+                  tmpfile.close();
+                }
+
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
+                const key = `11m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                const uploader = new Uploader(qiniuAdapter);
+                await uploader.putObjectFromFile(
+                  bucketRegionId,
+                  {
+                    bucket: bucketName,
+                    key: key,
+                  },
+                  tmpfilePath,
+                  (1 << 20) * 11,
+                  originalFileName,
+                  {
+                    accelerateUploading: true,
+                    putCallback: {
+                      partsInitCallback: (info) => {
+                          expect(info.uploadId).to.be.ok;
+                          expect(info.parts).to.be.empty;
+                      },
+                      progressCallback: (p) => {
+                          expect(p.total).to.equal((1 << 20) * 11);
+                      },
+                    },
+                  }
+                );
+
+                const downloader = new Downloader(qiniuAdapter);
+                const targetFilePath = tempfile();
+                await downloader.getObjectToFile(
+                  bucketRegionId,
+                  {
+                    bucket: bucketName,
+                    key: key
+                  },
+                  targetFilePath
+                );
+                const md5FromSource = await new Promise((resolve, reject) => {
+                    fs.readFile(tmpfilePath, { encoding: 'binary' }, (err, buf) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                    });
+                });
+                const md5FromObject = await new Promise((resolve, reject) => {
+                    fs.readFile(targetFilePath, { encoding: 'binary' }, (err, buf) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                    });
+                });
+                expect(md5FromSource).to.eql(md5FromObject);
+              });
+
+              it('upload with retry by uploader', async () => {
+                // create adapter and mock its getServiceUrls method for UP
+                const qiniu = new Qiniu(accessKey, secretKey);
+                const qiniuAdapter = qiniu.mode(mode);
+                qiniuAdapter.storageClasses = availableStorageClasses;
+                // @ts-ignore
+                const actualGetServiceUrls = qiniuAdapter.client.getServiceUrls;
+                // @ts-ignore
+                qiniuAdapter.client.getServiceUrls = async (...args: any) => {
+                  // @ts-ignore
+                  const result = await actualGetServiceUrls.apply(qiniuAdapter.client, args);
+                  if (args[0] === ServiceName.Up) {
+                    result.unshift('http://up.fake.qiniu.com');
+                  }
+                  return result;
+                };
+
+                // test upload
+                // create file to upload
+                const tmpfilePath = tempfile();
+                const tmpfile = await fs.promises.open(tmpfilePath, 'w');
+                try {
+                  await tmpfile.write(randomBytes((1 << 20) * 11));
+                } finally {
+                  tmpfile.close();
+                }
+
+                // upload
+                const key = `11m-文件-${Math.floor(Math.random() * (2 ** 64 - 1))}`;
+                const uploader = new Uploader(qiniuAdapter);
+                await uploader.putObjectFromFile(
+                  bucketRegionId,
+                  {
+                    bucket: bucketName,
+                    key: key,
+                  },
+                  tmpfilePath,
+                  (1 << 20) * 11,
+                  originalFileName,
+                  {
+                    accelerateUploading: true,
+                    putCallback: {
+                      partsInitCallback: (info) => {
+                          expect(info.uploadId).to.be.ok;
+                          expect(info.parts).to.be.empty;
+                      },
+                      progressCallback: (p) => {
+                          expect(p.total).to.equal((1 << 20) * 11);
+                      },
+                    },
+                  }
+                );
+
+                // download to check
+                const downloader = new Downloader(qiniuAdapter);
+                const targetFilePath = tempfile();
+                await downloader.getObjectToFile(
+                  bucketRegionId,
+                  {
+                    bucket: bucketName,
+                    key: key
+                  },
+                  targetFilePath
+                );
+                const md5FromSource = await new Promise((resolve, reject) => {
+                    fs.readFile(tmpfilePath, { encoding: 'binary' }, (err, buf) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                    });
+                });
+                const md5FromObject = await new Promise((resolve, reject) => {
+                    fs.readFile(targetFilePath, { encoding: 'binary' }, (err, buf) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        resolve(md5(buf, { encoding: 'binary', asBytes: true }));
+                    });
+                });
+                expect(md5FromSource).to.eql(md5FromObject);
+              });
+            }
         });
 
         context('bucket', () => {
@@ -1259,7 +1416,7 @@ process.on('uncaughtException', (err: any, origin: any) => {
                 if (mode === KODO_MODE) {
                     expect(domains).to.have.lengthOf.at.least(1);
                 } else {
-                    expect(domains).to.be.empty;
+                    expect(domains).to.have.lengthOf.at.least(1);
                 }
             });
 

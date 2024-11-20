@@ -48,10 +48,8 @@ import {
     SdkApiUplogEntry,
 } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
-import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
-import { HttpClientResponse } from 'urllib';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -422,45 +420,20 @@ export class S3 extends Kodo {
     }
 
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
-        const domainQuery: Record<string, string | number> = {
+        const fallbackScheme = this.adapterOption.ucUrl?.startsWith('https')
+            ? 'https'
+            : 'http';
+        const domains = await this.getOriginDomains(
+            s3RegionId,
             bucket,
-            type: 'source',
-        };
-
-        let domainResponse: HttpClientResponse<any>;
-        try {
-            domainResponse = await this.call({
-                method: 'GET',
-                serviceName: ServiceName.Uc,
-                path: 'domain',
-                query: domainQuery,
-                dataType: 'json',
-                s3RegionId,
-
-                // for uplog
-                apiName: 'queryDomain',
-                targetBucket: bucket,
-            });
-        } catch (err) {
-            // some server haven't this API. It will cause error.
-            // ignore it with an empty domain list.
-            return [];
-        }
-
-        if (!Array.isArray(domainResponse.data)) {
-            return [];
-        }
-
-        const shouldHttps = this.adapterOption.ucUrl?.startsWith('https');
-        return domainResponse.data
-            .filter((domain: any) => domain.api_scope === 1)
-            .map((domain: any) => ({
-                name: domain.domain,
-                protocol: shouldHttps ? 'https' : 'http',
-                type: 'origin',
-                apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
+            fallbackScheme,
+        );
+        return domains
+            .filter(d => d.apiScope === 's3')
+            .map(d => ({
+                ...d,
                 private: true,
-                protected: false,
+                protected: false
             }));
     }
 

@@ -288,7 +288,11 @@ export class Kodo implements Adapter {
             } as DomainWithoutShouldSign));
     }
 
-    async getOriginDomains(s3RegionId: string, bucket: string): Promise<DomainWithoutShouldSign[]> {
+    async getOriginDomains(
+      s3RegionId: string,
+      bucket: string,
+      fallbackScheme: 'http' | 'https' = 'http',
+    ): Promise<DomainWithoutShouldSign[]> {
         const domainsQuery: Record<string, string | number> = {
             bucket,
             type: 'source',
@@ -329,20 +333,22 @@ export class Kodo implements Adapter {
             return [];
         }
 
-        const domainShouldHttps: Record<string, boolean> = {};
+        const domainShouldHttps: Map<string, boolean> = new Map();
         if (
             certResult.status === 'fulfilled' &&
             Array.isArray(certResult.value.data)
         ) {
             certResult.value.data.forEach((cert: any) => {
-                domainShouldHttps[cert.domain] = true;
+                domainShouldHttps.set(cert.domain, true);
             });
         }
 
         return domainResult.value.data
             .map((domain: any) => ({
                 name: domain.domain,
-                protocol: domainShouldHttps[domain.domain] ? 'https' : 'http',
+                protocol: domainShouldHttps.size
+                    ? domainShouldHttps.has(domain.domain) ? 'https' : 'http'
+                    : fallbackScheme,
                 type: 'origin',
                 apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
             }));

@@ -41,6 +41,7 @@ import {
     StorageObject,
     TransferObject,
     UploadPartOutput,
+    UrlStyle,
 } from './adapter';
 import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
 import { RequestStats, URLRequestOptions } from './http-client';
@@ -676,7 +677,13 @@ export class Kodo implements Adapter {
             headers.Range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
         }
 
-        const url = await this.getObjectURL(s3RegionId, object, domain);
+        const url = await this.getObjectURL(
+            s3RegionId,
+            object,
+            domain,
+            undefined,
+            option?.urlStyle,
+        );
         const response = await this.callUrl(
             [
                 url.toString(),
@@ -704,7 +711,7 @@ export class Kodo implements Adapter {
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
-        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'bucketEndpoint',
+        style: UrlStyle = UrlStyle.BucketEndpoint,
     ): Promise<URL> {
         if (!domain) {
             const domains = await this._listDomains(s3RegionId, object.bucket);
@@ -714,7 +721,7 @@ export class Kodo implements Adapter {
             domain = domains[0];
         }
 
-        if (style !== 'bucketEndpoint') {
+        if (style !== UrlStyle.BucketEndpoint) {
             throw new Error('Only support "bucketEndpoint" style for now');
         }
 

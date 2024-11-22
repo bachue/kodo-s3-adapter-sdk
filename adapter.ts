@@ -34,13 +34,18 @@ export abstract class Adapter {
 
     abstract getObjectInfo(region: string, object: StorageObject): Promise<ObjectInfo>;
     abstract getObjectHeader(region: string, object: StorageObject, domain?: Domain): Promise<ObjectHeader>;
-    abstract getObject(region: string, object: StorageObject, domain?: Domain): Promise<ObjectGetResult>;
+    abstract getObject(
+      region: string,
+      object: StorageObject,
+      domain?: Domain,
+      style?: UrlStyle,
+    ): Promise<ObjectGetResult>;
     abstract getObjectURL(
         region: string,
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
-        style?: 'path' | 'virtualHost' | 'bucketEndpoint'
+        style?: UrlStyle,
     ): Promise<URL>;
     abstract getObjectStream(s3RegionId: string, object: StorageObject, domain?: Domain, option?: GetObjectStreamOption): Promise<Readable>;
     abstract putObject(
@@ -261,8 +266,15 @@ export interface PutObjectOption {
     accelerateUploading?: boolean;
 }
 
+export enum UrlStyle {
+    Path = 'path',
+    VirtualHost = 'virtualHost',
+    BucketEndpoint = 'bucketEndpoint',
+}
+
 export interface GetObjectStreamOption {
     rangeStart?: number;
     rangeEnd?: number;
     abortSignal?: AbortSignal;
+    urlStyle?: UrlStyle,
 }

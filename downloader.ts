@@ -5,7 +5,7 @@ import { ThrottleGroup, ThrottleOptions } from 'stream-throttle';
 
 import { Ref } from './types';
 import { Progress, ProgressStream, SpeedMonitor } from './progress-stream';
-import { Adapter, Domain, ObjectHeader, StorageObject } from './adapter';
+import { Adapter, Domain, ObjectHeader, StorageObject, UrlStyle } from './adapter';
 import { HttpClient } from './http-client';
 
 export class Downloader {
@@ -92,6 +92,7 @@ export class Downloader {
                 domain,
                 {
                     rangeStart: recoveredFrom,
+                    urlStyle: getFileOption?.urlStyle,
                 },
             );
             pipeList.unshift(reader);
@@ -154,6 +155,7 @@ export class Downloader {
         domain: Domain | undefined,
         option?: {
             rangeStart?: number,
+            urlStyle?: UrlStyle,
         },
     ): Promise<Readable> {
         // default values
@@ -167,6 +169,7 @@ export class Downloader {
             {
                 rangeStart: start,
                 abortSignal: this.abortController?.signal,
+                urlStyle: option?.urlStyle,
             }
         );
     }
@@ -265,4 +268,5 @@ export interface GetFileOption {
     downloadThrottleGroup?: ThrottleGroup;
     downloadThrottleOption?: ThrottleOptions;
     getCallback?: GetCallback;
+    urlStyle?: UrlStyle;
 }

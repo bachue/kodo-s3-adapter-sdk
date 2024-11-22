@@ -41,6 +41,7 @@ import {
     StorageObject,
     TransferObject,
     UploadPartOutput,
+    UrlStyle,
 } from './adapter';
 import { KodoHttpClient, RequestOptions, ServiceName } from './kodo-http-client';
 import { RequestStats, URLRequestOptions } from './http-client';
@@ -288,7 +289,11 @@ export class Kodo implements Adapter {
             } as DomainWithoutShouldSign));
     }
 
-    async getOriginDomains(s3RegionId: string, bucket: string): Promise<DomainWithoutShouldSign[]> {
+    async getOriginDomains(
+      s3RegionId: string,
+      bucket: string,
+      fallbackScheme: 'http' | 'https' = 'http',
+    ): Promise<DomainWithoutShouldSign[]> {
         const domainsQuery: Record<string, string | number> = {
             bucket,
             type: 'source',
@@ -329,20 +334,22 @@ export class Kodo implements Adapter {
             return [];
         }
 
-        const domainShouldHttps: Record<string, boolean> = {};
+        const domainShouldHttps: Map<string, boolean> = new Map();
         if (
             certResult.status === 'fulfilled' &&
             Array.isArray(certResult.value.data)
         ) {
             certResult.value.data.forEach((cert: any) => {
-                domainShouldHttps[cert.domain] = true;
+                domainShouldHttps.set(cert.domain, true);
             });
         }
 
         return domainResult.value.data
             .map((domain: any) => ({
                 name: domain.domain,
-                protocol: domainShouldHttps[domain.domain] ? 'https' : 'http',
+                protocol: domainShouldHttps.size
+                    ? domainShouldHttps.has(domain.domain) ? 'https' : 'http'
+                    : fallbackScheme,
                 type: 'origin',
                 apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
             }));
@@ -670,7 +677,13 @@ export class Kodo implements Adapter {
             headers.Range = `bytes=${option?.rangeStart ?? ''}-${option?.rangeEnd ?? ''}`;
         }
 
-        const url = await this.getObjectURL(s3RegionId, object, domain);
+        const url = await this.getObjectURL(
+            s3RegionId,
+            object,
+            domain,
+            undefined,
+            option?.urlStyle,
+        );
         const response = await this.callUrl(
             [
                 url.toString(),
@@ -698,7 +711,7 @@ export class Kodo implements Adapter {
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
-        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'bucketEndpoint',
+        style: UrlStyle = UrlStyle.BucketEndpoint,
     ): Promise<URL> {
         if (!domain) {
             const domains = await this._listDomains(s3RegionId, object.bucket);
@@ -708,7 +721,7 @@ export class Kodo implements Adapter {
             domain = domains[0];
         }
 
-        if (style !== 'bucketEndpoint') {
+        if (style !== UrlStyle.BucketEndpoint) {
             throw new Error('Only support "bucketEndpoint" style for now');
         }
 

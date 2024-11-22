@@ -36,6 +36,7 @@ import {
     StorageObject,
     TransferObject,
     UploadPartOutput,
+    UrlStyle,
 } from './adapter';
 import {
     ErrorRequestUplogEntry,
@@ -48,10 +49,8 @@ import {
     SdkApiUplogEntry,
 } from './uplog';
 import { HttpClient, RequestStats } from './http-client';
-import { ServiceName } from './kodo-http-client';
 import { RegionRequestOptions } from './region';
 import { generateReqId } from './req_id';
-import { HttpClientResponse } from 'urllib';
 
 export const USER_AGENT = `Qiniu-Kodo-S3-Adapter-NodeJS-SDK/${pkg.version} (${os.type()}; ${os.platform()}; ${os.arch()}; )/s3`;
 
@@ -67,8 +66,15 @@ export class S3 extends Kodo {
     protected clientsLock = new AsyncLock();
     protected listKodoBucketsPromise?: Promise<Bucket[]>;
 
-    private async getClient(s3RegionId?: string, s3ForcePathStyle = true): Promise<AWS.S3> {
-        const cacheKey = [s3RegionId ?? '', s3ForcePathStyle ? 's3ForcePathStyle' : ''].join(':');
+    /**
+     * if domain exists, the urlStyle will be forced to 'bucketEndpoint'
+     */
+    private async getClient(
+      s3RegionId?: string,
+      urlStyle: UrlStyle = UrlStyle.Path,
+      domain?: Domain,
+    ): Promise<AWS.S3> {
+        const cacheKey = [s3RegionId ?? '', urlStyle, domain?.name ?? ''].join(':');
         if (this.clients[cacheKey]) {
             return this.clients[cacheKey];
         }
@@ -79,12 +85,26 @@ export class S3 extends Kodo {
                 userAgent += `/${this.adapterOption.appendedUserAgent}`;
             }
             const s3IdEndpoint = await this.regionService.getS3Endpoint(s3RegionId, this.getRegionRequestOptions());
+            const urlStyleOptions: {
+                endpoint: string,
+                s3ForcePathStyle?: boolean,
+                s3BucketEndpoint?: boolean,
+            } = {
+                endpoint: !domain
+                    ? s3IdEndpoint.s3Endpoint
+                    : `${domain.protocol}://${domain.name}`,
+            };
+            if (urlStyle === UrlStyle.BucketEndpoint) {
+                urlStyleOptions.s3BucketEndpoint = true;
+            } else {
+                urlStyleOptions.s3ForcePathStyle = urlStyle === UrlStyle.Path;
+            }
+
             return new AWS.S3({
                 apiVersion: '2006-03-01',
                 customUserAgent: userAgent,
                 computeChecksums: true,
                 region: s3IdEndpoint.s3Id,
-                endpoint: s3IdEndpoint.s3Endpoint,
                 maxRetries: 10,
                 signatureVersion: 'v4',
                 useDualstack: true,
@@ -96,11 +116,11 @@ export class S3 extends Kodo {
                 httpOptions: {
                     connectTimeout: 30000,
                     timeout: 300000,
-                    agent: s3IdEndpoint.s3Endpoint.startsWith('https://')
+                    agent: urlStyleOptions.endpoint.startsWith('https://')
                         ? HttpClient.httpsKeepaliveAgent
                         : HttpClient.httpKeepaliveAgent,
                 },
-                s3ForcePathStyle
+                ...urlStyleOptions
             });
         });
         this.clients[cacheKey] = client;
@@ -422,45 +442,20 @@ export class S3 extends Kodo {
     }
 
     async listDomains(s3RegionId: string, bucket: string): Promise<Domain[]> {
-        const domainQuery: Record<string, string | number> = {
+        const fallbackScheme = this.adapterOption.ucUrl?.startsWith('https')
+            ? 'https'
+            : 'http';
+        const domains = await this.getOriginDomains(
+            s3RegionId,
             bucket,
-            type: 'source',
-        };
-
-        let domainResponse: HttpClientResponse<any>;
-        try {
-            domainResponse = await this.call({
-                method: 'GET',
-                serviceName: ServiceName.Uc,
-                path: 'domain',
-                query: domainQuery,
-                dataType: 'json',
-                s3RegionId,
-
-                // for uplog
-                apiName: 'queryDomain',
-                targetBucket: bucket,
-            });
-        } catch (err) {
-            // some server haven't this API. It will cause error.
-            // ignore it with an empty domain list.
-            return [];
-        }
-
-        if (!Array.isArray(domainResponse.data)) {
-            return [];
-        }
-
-        const shouldHttps = this.adapterOption.ucUrl?.startsWith('https');
-        return domainResponse.data
-            .filter((domain: any) => domain.api_scope === 1)
-            .map((domain: any) => ({
-                name: domain.domain,
-                protocol: shouldHttps ? 'https' : 'http',
-                type: 'origin',
-                apiScope: domain.api_scope === 0 ? 'kodo' : 's3',
+            fallbackScheme,
+        );
+        return domains
+            .filter(d => d.apiScope === 's3')
+            .map(d => ({
+                ...d,
                 private: true,
-                protected: false,
+                protected: false
             }));
     }
 
@@ -567,10 +562,11 @@ export class S3 extends Kodo {
     async getObject(
         s3RegionId: string,
         object: StorageObject,
-        _domain?: Domain
+        domain?: Domain,
+        style?: UrlStyle,
     ): Promise<ObjectGetResult> {
         const [s3, bucketId] = await Promise.all([
-            this.getClient(s3RegionId),
+            this.getClient(s3RegionId, style, domain),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const request = s3.getObject({ Bucket: bucketId, Key: object.key });
@@ -589,11 +585,11 @@ export class S3 extends Kodo {
     async getObjectStream(
         s3RegionId: string,
         object: StorageObject,
-        _domain?: Domain,
+        domain?: Domain,
         option?: GetObjectStreamOption,
     ): Promise<Readable> {
         const [s3, bucketId] = await Promise.all([
-            this.getClient(s3RegionId),
+            this.getClient(s3RegionId, option?.urlStyle, domain),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         let range: string | undefined;
@@ -622,33 +618,10 @@ export class S3 extends Kodo {
         object: StorageObject,
         domain?: Domain,
         deadline?: Date,
-        style: 'path' | 'virtualHost' | 'bucketEndpoint' = 'path',
+        style: UrlStyle = UrlStyle.Path,
     ): Promise<URL> {
-        let s3Promise: Promise<AWS.S3>;
-        // if domain is not undefined, use the domain, else use the default s3 endpoint
-        if (domain) {
-            if (style !== 'bucketEndpoint') {
-                throw new Error('Custom S3 endpoint only support "bucketEndpoint" style');
-            }
-            s3Promise = Promise.resolve(new AWS.S3({
-                apiVersion: '2006-03-01',
-                region: s3RegionId,
-                endpoint: `${domain.protocol}://${domain.name}`,
-                credentials: {
-                    accessKeyId: this.adapterOption.accessKey,
-                    secretAccessKey: this.adapterOption.secretKey,
-                },
-                signatureVersion: 'v4',
-                s3BucketEndpoint: true, // use bucketEndpoint style
-            }));
-        } else {
-            if (style === 'bucketEndpoint') {
-                throw new Error('Default S3 endpoint not support "bucketEndpoint" style');
-            }
-            s3Promise = this.getClient(s3RegionId, style === 'path');
-        }
         const [s3, bucketId] = await Promise.all([
-            s3Promise,
+            this.getClient(s3RegionId, style, domain),
             this.fromKodoBucketNameToS3BucketId(object.bucket),
         ]);
         const expires = deadline
